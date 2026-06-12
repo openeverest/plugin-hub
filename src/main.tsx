@@ -62,6 +62,8 @@ interface CatalogEntry {
     providerName?: string;
     supportedEngines?: string[];
   };
+  maturity?: string;
+  capabilities?: Record<string, unknown>;
   installed?: boolean;
   installedVersion?: string;
   installedPhase?: string;
@@ -178,6 +180,64 @@ const styles = {
     fontSize: '0.75rem',
     fontWeight: 600,
   } as const,
+  maturityChip: (maturity: string) => {
+    const m = (maturity || 'unknown').toLowerCase();
+    const palette: Record<string, { bg: string; fg: string }> = {
+      alpha: { bg: '#ffedd5', fg: '#9a3412' },
+      beta: { bg: '#dbeafe', fg: '#1e3a8a' },
+      stable: { bg: '#dcfce7', fg: '#166534' },
+      ga: { bg: '#dcfce7', fg: '#166534' },
+      deprecated: { bg: '#fee2e2', fg: '#991b1b' },
+      unknown: { bg: '#e5e7eb', fg: '#374151' },
+    };
+    const c = palette[m] ?? palette.unknown;
+    return {
+      display: 'inline-block',
+      padding: '0.15rem 0.55rem',
+      background: c.bg,
+      color: c.fg,
+      borderRadius: 999,
+      fontSize: '0.75rem',
+      fontWeight: 600,
+      textTransform: 'capitalize' as const,
+    };
+  },
+  capChipYes: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '0.15rem 0.55rem',
+    background: '#dcfce7',
+    color: '#166534',
+    borderRadius: 999,
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    marginRight: 6,
+    marginBottom: 6,
+  } as const,
+  capChipNo: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '0.15rem 0.55rem',
+    background: '#f3f4f6',
+    color: '#9ca3af',
+    borderRadius: 999,
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    marginRight: 6,
+    marginBottom: 6,
+    textDecoration: 'line-through' as const,
+  } as const,
+  capRow: {
+    display: 'flex',
+    gap: '0.5rem',
+    alignItems: 'baseline',
+    marginBottom: 4,
+    flexWrap: 'wrap' as const,
+    fontSize: '0.875rem',
+  } as const,
+  capKey: { color: '#6b7280', fontWeight: 500, minWidth: 120 } as const,
   typeChip: (type: string) => ({
     display: 'inline-block',
     padding: '0.15rem 0.55rem',
@@ -345,6 +405,74 @@ function helmInstallCommand(entry: CatalogEntry): string {
   ].join('\n');
 }
 
+function humanizeKey(key: string): string {
+  return key
+    .replace(/[._-]/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function renderCapabilityValue(key: string, value: unknown): any {
+  const label = humanizeKey(key);
+  if (typeof value === 'boolean') {
+    return value
+      ? h('span', { key, style: styles.capChipYes }, `\u2713 ${label}`)
+      : h('span', { key, style: styles.capChipNo }, `\u2717 ${label}`);
+  }
+  if (Array.isArray(value)) {
+    return h(
+      'div',
+      { key, style: styles.capRow },
+      h('span', { style: styles.capKey }, label),
+      h(
+        'div',
+        null,
+        ...value.map((v, i) =>
+          h('span', { key: i, style: styles.categoryTag }, String(v)),
+        ),
+      ),
+    );
+  }
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'object') {
+    return h(
+      'div',
+      { key, style: styles.capRow },
+      h('span', { style: styles.capKey }, label),
+      h(
+        'code',
+        { style: { fontSize: '0.8125rem', color: '#374151' } },
+        JSON.stringify(value),
+      ),
+    );
+  }
+  return h(
+    'div',
+    { key, style: styles.capRow },
+    h('span', { style: styles.capKey }, label),
+    h('span', { style: { color: '#111827' } }, String(value)),
+  );
+}
+
+function renderCapabilities(caps: Record<string, unknown>): any {
+  const entries = Object.entries(caps);
+  if (!entries.length) return null;
+  const booleans = entries.filter(([, v]) => typeof v === 'boolean');
+  const others = entries.filter(([, v]) => typeof v !== 'boolean');
+  return h(
+    'div',
+    null,
+    booleans.length
+      ? h(
+          'div',
+          { style: { marginBottom: others.length ? '0.75rem' : 0 } },
+          ...booleans.map(([k, v]) => renderCapabilityValue(k, v)),
+        )
+      : null,
+    others.length ? h('div', null, ...others.map(([k, v]) => renderCapabilityValue(k, v))) : null,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Components
 // ---------------------------------------------------------------------------
@@ -463,13 +591,22 @@ function Row(props: { entry: CatalogEntry; onSelect: (e: CatalogEntry) => void }
     h(
       'td',
       { style: styles.td },
-      entry.installed
-        ? h(
-            'span',
-            { style: styles.statusInstalled },
-            entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
-          )
-        : h('span', { style: styles.statusAvailable }, 'Available'),
+      h(
+        'div',
+        { style: { display: 'flex', flexDirection: 'column' as const, gap: 4, alignItems: 'flex-start' } },
+        h(
+          'span',
+          { style: styles.maturityChip(entry.maturity || 'unknown') },
+          entry.maturity || 'unknown',
+        ),
+        entry.installed
+          ? h(
+              'span',
+              { style: styles.statusInstalled },
+              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
+            )
+          : null,
+      ),
     ),
   );
 }
@@ -552,7 +689,7 @@ function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
                 )
               : null,
           )
-        : h('div', { style: { marginBottom: '1rem' } }, h('span', { style: styles.statusAvailable }, 'Available')),
+        : null,
 
       entry.description
         ? h(
@@ -570,6 +707,18 @@ function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
           'div',
           { style: { fontSize: '0.875rem', lineHeight: 1.7 } },
           version ? h('div', null, h('b', null, 'Version: '), version) : null,
+          entry.maturity
+            ? h(
+                'div',
+                null,
+                h('b', null, 'Maturity: '),
+                h(
+                  'span',
+                  { style: styles.maturityChip(entry.maturity) },
+                  entry.maturity,
+                ),
+              )
+            : null,
           entry.compatibility?.openeverest
             ? h('div', null, h('b', null, 'Requires OpenEverest: '), entry.compatibility.openeverest)
             : null,
@@ -603,6 +752,15 @@ function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
               null,
               ...supportedEngines.map((e) => h('span', { key: e, style: styles.categoryTag }, e)),
             ),
+          )
+        : null,
+
+      entry.capabilities && Object.keys(entry.capabilities).length
+        ? h(
+            'div',
+            { style: styles.section },
+            h('h3', { style: styles.sectionTitle }, 'Capabilities'),
+            renderCapabilities(entry.capabilities),
           )
         : null,
 
@@ -770,7 +928,7 @@ const HubPage = (props: PluginRouteProps): any => {
               h('th', { style: styles.th }, 'Type'),
               h('th', { style: styles.th }, 'Version'),
               h('th', { style: styles.th }, 'Categories'),
-              h('th', { style: styles.th }, 'Status'),
+              h('th', { style: styles.th }, 'Maturity'),
             ),
           ),
           h('tbody', null, ...filtered.map((entry) => Row({ entry, onSelect: setSelected }))),
