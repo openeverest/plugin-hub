@@ -231,15 +231,14 @@ const styles = {
   },
   drawerBackdrop: {
     position: 'fixed' as const,
-    // Offset below the host's fixed MuiAppBar (regular toolbar = 64px on
-    // desktop, 56px on narrow screens) so the navigation stays visible and
-    // the drawer header isn't clipped.
-    top: 64,
     right: 0,
     bottom: 0,
     left: 0,
     background: 'rgba(15, 23, 42, 0.4)',
-    zIndex: 1000,
+    // Sit above MUI's permanent drawer (1200) but below the host's AppBar
+    // (1100 by default, but some themes push it higher) — the `top` offset
+    // is computed at render time so the AppBar always stays visible.
+    zIndex: 1200,
     display: 'flex',
     justifyContent: 'flex-end',
   },
@@ -475,6 +474,25 @@ function Row(props: { entry: CatalogEntry; onSelect: (e: CatalogEntry) => void }
   );
 }
 
+function measureAppBar(): number {
+  if (typeof document === 'undefined') return 64;
+  const ab = document.querySelector('header.MuiAppBar-root') as HTMLElement | null;
+  if (!ab) return 64;
+  const height = Math.round(ab.getBoundingClientRect().height);
+  return height > 0 ? height : 64;
+}
+
+function useAppBarOffset(): number {
+  const [offset, setOffset] = React.useState<number>(measureAppBar);
+  React.useEffect(() => {
+    const update = () => setOffset(measureAppBar());
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return offset;
+}
+
 function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
   const { entry, onClose } = props;
   const version = defaultChannelVersion(entry);
@@ -482,10 +500,12 @@ function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
+  const appbarOffset = useAppBarOffset();
+  const backdropStyle = { ...styles.drawerBackdrop, top: appbarOffset };
 
   return h(
     'div',
-    { style: styles.drawerBackdrop, onClick: onClose },
+    { style: backdropStyle, onClick: onClose },
     h(
       'div',
       {
