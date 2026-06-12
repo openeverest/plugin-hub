@@ -353,6 +353,8 @@ type extensionSummary struct {
 	Install          map[string]any `json:"install"`
 	Plugin           map[string]any `json:"plugin,omitempty"`
 	Provider         map[string]any `json:"provider,omitempty"`
+	Maturity         string         `json:"maturity,omitempty"`
+	Capabilities     map[string]any `json:"capabilities,omitempty"`
 	Installed        bool           `json:"installed"`
 	InstalledVersion string         `json:"installedVersion,omitempty"`
 	InstalledPhase   string         `json:"installedPhase,omitempty"`
