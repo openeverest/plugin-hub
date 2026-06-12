@@ -231,7 +231,13 @@ const styles = {
   },
   drawerBackdrop: {
     position: 'fixed' as const,
-    inset: 0,
+    // Offset below the host's fixed MuiAppBar (regular toolbar = 64px on
+    // desktop, 56px on narrow screens) so the navigation stays visible and
+    // the drawer header isn't clipped.
+    top: 64,
+    right: 0,
+    bottom: 0,
+    left: 0,
     background: 'rgba(15, 23, 42, 0.4)',
     zIndex: 1000,
     display: 'flex',
