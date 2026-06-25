@@ -41,6 +41,10 @@ spec:
             - name: CACHE_TTL_SECONDS
               value: {{ .Values.cacheTTLSeconds | quote }}
             {{- end }}
+            {{- if .Values.clusterName }}
+            - name: EVEREST_CLUSTER_NAME
+              value: {{ .Values.clusterName | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

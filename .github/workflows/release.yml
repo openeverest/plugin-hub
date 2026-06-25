@@ -207,3 +207,28 @@ jobs:
             --password-stdin
           helm push release-artifacts/plugin-hub-*.tgz \
             oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+
+      - name: Bump version in README on main
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Earlier steps left Chart.yaml / values.yaml modified for packaging.
+          # Drop those so we can switch to a clean main.
+          git reset --hard HEAD
+          git fetch origin main
+          git checkout -B main origin/main
+          # Match `--version X.Y.Z` (with optional pre-release / build suffix).
+          sed -i -E \
+            "s|--version [0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?|--version ${VERSION}|g" \
+            README.md
+          if git diff --quiet README.md; then
+            echo "README already references ${VERSION}, nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore(release): bump README install version to ${VERSION}"
+          git push origin main

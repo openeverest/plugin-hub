@@ -40,6 +40,10 @@ hubIndexURL: ""
 # Catalog cache TTL in seconds. Defaults to 300 (5 minutes) when empty.
 cacheTTLSeconds: ""
 
+# Cluster identifier used in /v1/clusters/{cluster}/providers when listing
+# installed providers. Defaults to "main" when empty.
+clusterName: ""
+
 resources:
   limits:
     cpu: 200m

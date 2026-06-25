@@ -58,7 +58,7 @@ npm run dev                 # Vite dev server on http://localhost:3001
 
 # Backend (in another terminal)
 npm run build               # produces dist/main.js for the backend to embed
-cp src/extension-icon.png backend/dist/icon.png
+cp src/icon.png backend/dist/icon.png
 cp dist/main.js backend/dist/main.js
 cd backend && go run .      # serves on :8080
 ```

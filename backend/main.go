@@ -46,6 +46,7 @@ const (
 	defaultListenPort     = "8080"
 	defaultEverestService = "http://everest-server.everest-system.svc.cluster.local:8080"
 	defaultMountPath      = "/v1/plugins/plugin-hub"
+	defaultClusterName    = "main"
 
 	iconFetchTimeout    = 8 * time.Second
 	iconMaxBytesPerItem = 2 * 1024 * 1024  // 2 MiB
@@ -103,6 +104,15 @@ func mountPath() string {
 		return "/" + strings.Trim(v, "/")
 	}
 	return defaultMountPath
+}
+
+// clusterName is the cluster identifier used in the host API path
+// /v1/clusters/{cluster}/providers when listing installed providers.
+func clusterName() string {
+	if v := os.Getenv("EVEREST_CLUSTER_NAME"); v != "" {
+		return v
+	}
+	return defaultClusterName
 }
 
 // ---------------------------------------------------------------------------
@@ -452,20 +462,112 @@ func makeCatalogHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc 
 	}
 }
 
-// fetchInstalled calls the OpenEverest API for the list of installed
-// extensions, forwarding the caller's JWT as a bearer token. A 404 is
-// translated to an empty list so the UI works on hosts that haven't yet
-// shipped the endpoint.
-func fetchInstalled(apiBase string, userJWT string) ([]installedExtension, error) {
+// fetchInstalled discovers what is currently installed on the host by
+// hitting two endpoints in parallel-ish (sequentially is fine; both are cheap
+// in-cluster calls):
+//
+//   - GET /v1/clusters/{cluster}/providers — Kubernetes-style list, one item
+//     per installed Provider CR. The catalog name lives at metadata.name,
+//     the chart version at metadata.labels["app.kubernetes.io/version"].
+//   - GET /v1/plugins — flat list of host-registered generic plugins. Catalog
+//     name lives at .name, version at .version.
+//
+// We surface a non-fatal error if either call fails so the UI can still show
+// partial state. A 404 on either endpoint is treated as "feature absent" and
+// returns an empty list silently — the host may not expose both kinds yet.
+func fetchInstalled(apiBase, cluster, authHeader string) ([]installedExtension, error) {
 	if apiBase == "" {
 		return nil, errors.New("everest API URL not configured")
 	}
-	req, err := http.NewRequest(http.MethodGet, apiBase+"/v1/installed-extensions", nil)
+	var (
+		all  []installedExtension
+		errs []string
+	)
+	if providers, err := fetchProviders(apiBase, cluster, authHeader); err != nil {
+		errs = append(errs, "providers: "+err.Error())
+	} else {
+		all = append(all, providers...)
+	}
+	if plugins, err := fetchPlugins(apiBase, authHeader); err != nil {
+		errs = append(errs, "plugins: "+err.Error())
+	} else {
+		all = append(all, plugins...)
+	}
+	if len(errs) > 0 {
+		return all, errors.New(strings.Join(errs, "; "))
+	}
+	return all, nil
+}
+
+func fetchProviders(apiBase, cluster, authHeader string) ([]installedExtension, error) {
+	body, err := everestGET(apiBase+"/v1/clusters/"+url.PathEscape(cluster)+"/providers", authHeader)
 	if err != nil {
 		return nil, err
 	}
-	if userJWT != "" {
-		req.Header.Set("Authorization", "Bearer "+userJWT)
+	if body == nil {
+		return nil, nil
+	}
+	var payload struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("decode providers: %w", err)
+	}
+	out := make([]installedExtension, 0, len(payload.Items))
+	for _, it := range payload.Items {
+		if it.Metadata.Name == "" {
+			continue
+		}
+		out = append(out, installedExtension{
+			Name: it.Metadata.Name,
+			Type: "provider",
+		})
+	}
+	return out, nil
+}
+
+func fetchPlugins(apiBase, authHeader string) ([]installedExtension, error) {
+	body, err := everestGET(apiBase+"/v1/plugins", authHeader)
+	if err != nil {
+		return nil, err
+	}
+	if body == nil {
+		return nil, nil
+	}
+	var items []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, fmt.Errorf("decode plugins: %w", err)
+	}
+	out := make([]installedExtension, 0, len(items))
+	for _, it := range items {
+		if it.Name == "" {
+			continue
+		}
+		out = append(out, installedExtension{
+			Name: it.Name,
+			Type: "plugin",
+		})
+	}
+	return out, nil
+}
+
+// everestGET performs an authenticated GET against the host API. A 404 is
+// translated to (nil, nil) so callers can treat it as "feature unavailable".
+// authHeader is forwarded verbatim into the outbound Authorization header
+// (caller is responsible for any "Bearer " prefix).
+func everestGET(url, authHeader string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
 	}
 	req.Header.Set("Accept", "application/json")
 
@@ -475,32 +577,42 @@ func fetchInstalled(apiBase string, userJWT string) ([]installedExtension, error
 		return nil, err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("everest API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
+	return io.ReadAll(resp.Body)
+}
 
-	var payload installedExtensionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode installed extensions: %w", err)
+// resolveAuthHeader extracts the auth credential the host attaches to the
+// inbound plugin request. The OpenEverest gateway forwards the user's JWT as
+// a standard Authorization: Bearer <token> header; we pass it through to the
+// upstream API verbatim. Legacy X-Everest-User is supported as a fallback so
+// older host versions keep working.
+func resolveAuthHeader(r *http.Request) string {
+	if v := r.Header.Get("Authorization"); v != "" {
+		return v
 	}
-	if len(payload.Items) > 0 {
-		return payload.Items, nil
+	if v := r.Header.Get("X-Everest-User"); v != "" {
+		return "Bearer " + v
 	}
-	return payload.InstalledExtensions, nil
+	return ""
 }
 
 func makeInstalledHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		items, err := fetchInstalled(everestAPIURL(), r.Header.Get("X-Everest-User"))
-		if err != nil {
+		items, err := fetchInstalled(everestAPIURL(), clusterName(), resolveAuthHeader(r))
+		if err != nil && len(items) == 0 {
 			apiError(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+		resp := map[string]any{"items": items}
+		if err != nil {
+			resp["error"] = err.Error()
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 
@@ -518,14 +630,13 @@ func makeSummaryHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc 
 			return
 		}
 
-		installed, installedErr := fetchInstalled(everestAPIURL(), r.Header.Get("X-Everest-User"))
-		// Build a quick lookup keyed by the canonical extension name.
-		installedByName := map[string]installedExtension{}
+		installed, installedErr := fetchInstalled(everestAPIURL(), clusterName(), resolveAuthHeader(r))
+		// Match on (type, name) — plugins and providers live in separate
+		// namespaces upstream, so we don't want a same-named plugin and
+		// provider to alias each other.
+		installedByKey := map[string]installedExtension{}
 		for _, ie := range installed {
-			key := installedExtensionKey(ie)
-			if key != "" {
-				installedByName[key] = ie
-			}
+			installedByKey[ie.Type+":"+ie.Name] = ie
 		}
 
 		out := summaryResponse{
@@ -538,12 +649,8 @@ func makeSummaryHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc 
 			out.InstalledError = installedErr.Error()
 		}
 		for _, ext := range index.Extensions {
-			ie, ok := installedByName[ext.Name]
+			_, ok := installedByKey[ext.Type+":"+ext.Name]
 			ext.Installed = ok
-			if ok {
-				ext.InstalledVersion = ie.Version
-				ext.InstalledPhase = ie.Status.Phase
-			}
 			ext.Icon = icons.register(ext.Icon)
 			out.Extensions = append(out.Extensions, ext)
 		}
@@ -595,27 +702,14 @@ type extensionSummary struct {
 	InstalledPhase   string         `json:"installedPhase,omitempty"`
 }
 
-type installedExtensionsResponse struct {
-	Items               []installedExtension `json:"items"`
-	InstalledExtensions []installedExtension `json:"installedExtensions"`
-}
-
+// installedExtension is a normalized view of "something currently installed".
+// Type is "plugin" or "provider". We intentionally do not surface a version
+// — the upstream sources (helm chart appVersion label vs. plugin manifest
+// version) don't agree on a meaningful value, so the field would mislead more
+// than it helps.
 type installedExtension struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Version string `json:"version"`
-	Spec    struct {
-		Type     string `json:"type"`
-		Plugin   struct {
-			PluginCRName string `json:"pluginCRName"`
-		} `json:"plugin"`
-		Provider struct {
-			ProviderName string `json:"providerName"`
-		} `json:"provider"`
-	} `json:"spec"`
-	Status struct {
-		Phase string `json:"phase"`
-	} `json:"status"`
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 type summaryResponse struct {
@@ -625,20 +719,6 @@ type summaryResponse struct {
 	Extensions     []extensionSummary `json:"extensions"`
 	Stale          bool               `json:"stale"`
 	InstalledError string             `json:"installedError,omitempty"`
-}
-
-// installedExtensionKey returns the catalog name to match against. The CR
-// spec is the authoritative source; the top-level metadata.name is used as a
-// fallback because some early host versions surfaced installs under the same
-// name as the Plugin CR / provider.
-func installedExtensionKey(ie installedExtension) string {
-	if ie.Spec.Plugin.PluginCRName != "" {
-		return ie.Spec.Plugin.PluginCRName
-	}
-	if ie.Spec.Provider.ProviderName != "" {
-		return ie.Spec.Provider.ProviderName
-	}
-	return ie.Name
 }
 
 // ---------------------------------------------------------------------------
