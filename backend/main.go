@@ -15,13 +15,16 @@
 package main
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -42,6 +45,14 @@ const (
 	everestCallTimeout    = 10 * time.Second
 	defaultListenPort     = "8080"
 	defaultEverestService = "http://everest-server.everest-system.svc.cluster.local:8080"
+	defaultMountPath      = "/v1/plugins/plugin-hub"
+
+	iconFetchTimeout    = 8 * time.Second
+	iconMaxBytesPerItem = 2 * 1024 * 1024  // 2 MiB
+	iconCacheMaxBytes   = 32 * 1024 * 1024 // 32 MiB
+	iconCacheMaxItems   = 512
+	iconPositiveTTL     = 24 * time.Hour
+	iconNegativeTTL     = 5 * time.Minute
 )
 
 // ---------------------------------------------------------------------------
@@ -81,6 +92,17 @@ func listenPort() string {
 		return p
 	}
 	return defaultListenPort
+}
+
+// mountPath is the host-relative path under which this plugin is served by
+// the OpenEverest API gateway. Rewritten icon URLs are prefixed with it so
+// the browser sees a same-origin request and the host CSP `default-src 'self'`
+// is satisfied.
+func mountPath() string {
+	if v := os.Getenv("PLUGIN_MOUNT_PATH"); v != "" {
+		return "/" + strings.Trim(v, "/")
+	}
+	return defaultMountPath
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +182,219 @@ func (c *catalogCache) fetchLocked() ([]byte, error) {
 }
 
 // ---------------------------------------------------------------------------
+// Icon proxy
+// ---------------------------------------------------------------------------
+//
+// The upstream catalog references icons by absolute URLs (typically
+// raw.githubusercontent.com). The host UI enforces a `default-src 'self'`
+// CSP that blocks those cross-origin image loads, so the backend rewrites
+// every absolute icon URL in the catalog/summary responses to a same-origin
+// path under this plugin's mount (e.g. /v1/plugins/plugin-hub/api/icon/<key>).
+//
+// Keys are SHA-256 of the upstream URL: stable, opaque, and content-addressed
+// by URL (no caller-supplied URL parameter, no SSRF surface). Only URLs that
+// appeared in a validated catalog response can be fetched.
+
+type iconEntry struct {
+	body        []byte
+	contentType string
+	err         error
+	cachedAt    time.Time
+}
+
+type iconProxy struct {
+	mu         sync.Mutex
+	urls       map[string]string     // key -> upstream URL (populated on catalog rewrite)
+	cache      map[string]iconEntry  // key -> cached fetch result
+	order      []string              // FIFO eviction order
+	totalBytes int64
+	client     *http.Client
+	mountPath  string
+}
+
+func newIconProxy(mount string) *iconProxy {
+	return &iconProxy{
+		urls:      map[string]string{},
+		cache:     map[string]iconEntry{},
+		client:    &http.Client{Timeout: iconFetchTimeout},
+		mountPath: mount,
+	}
+}
+
+// register validates the URL and, if proxiable, records the mapping and
+// returns the rewritten same-origin path. Non-absolute, data:, or otherwise
+// unproxiable values are returned unchanged so the frontend can still render
+// them inline.
+func (p *iconProxy) register(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return rawURL
+	}
+	sum := sha256.Sum256([]byte(rawURL))
+	key := hex.EncodeToString(sum[:])
+
+	p.mu.Lock()
+	p.urls[key] = rawURL
+	p.mu.Unlock()
+	return p.mountPath + "/api/icon/" + key
+}
+
+// rewriteCatalogBody parses the raw upstream catalog JSON, rewrites every
+// extensions[].icon to a proxy URL, and returns the new bytes. On parse
+// failure it returns the original body unchanged so the catalog endpoint
+// stays useful even if the upstream schema drifts.
+func (p *iconProxy) rewriteCatalogBody(body []byte) []byte {
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		log.Printf("icon rewrite: parse failed, serving upstream verbatim: %v", err)
+		return body
+	}
+	exts, ok := doc["extensions"].([]any)
+	if !ok {
+		return body
+	}
+	for _, e := range exts {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		icon, ok := m["icon"].(string)
+		if !ok || icon == "" {
+			continue
+		}
+		m["icon"] = p.register(icon)
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		log.Printf("icon rewrite: marshal failed, serving upstream verbatim: %v", err)
+		return body
+	}
+	return out
+}
+
+// serve handles GET /api/icon/{key}. Unknown keys and upstream failures fall
+// back to the embedded plugin icon so the UI never shows a broken image.
+func (p *iconProxy) serve(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	p.mu.Lock()
+	rawURL, known := p.urls[key]
+	entry, cached := p.cache[key]
+	p.mu.Unlock()
+
+	if !known {
+		writeEmbeddedIcon(w, "public, max-age=300")
+		return
+	}
+	if cached {
+		ttl := iconPositiveTTL
+		if entry.err != nil {
+			ttl = iconNegativeTTL
+		}
+		if time.Since(entry.cachedAt) < ttl {
+			if entry.err != nil {
+				writeEmbeddedIcon(w, "public, max-age=60")
+				return
+			}
+			writeIcon(w, entry.contentType, entry.body)
+			return
+		}
+	}
+
+	body, ct, fetchErr := p.fetch(rawURL)
+	p.store(key, body, ct, fetchErr)
+	if fetchErr != nil {
+		log.Printf("icon fetch failed for %s: %v", rawURL, fetchErr)
+		writeEmbeddedIcon(w, "public, max-age=60")
+		return
+	}
+	writeIcon(w, ct, body)
+}
+
+func (p *iconProxy) fetch(rawURL string) ([]byte, string, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Accept", "image/*")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, "", fmt.Errorf("upstream returned status %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	if !strings.HasPrefix(strings.ToLower(ct), "image/") {
+		return nil, "", fmt.Errorf("upstream content-type %q is not an image", ct)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, iconMaxBytesPerItem+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(body)) > iconMaxBytesPerItem {
+		return nil, "", fmt.Errorf("upstream icon exceeds %d bytes", iconMaxBytesPerItem)
+	}
+	return body, ct, nil
+}
+
+func (p *iconProxy) store(key string, body []byte, ct string, fetchErr error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Drop any prior bytes for this key from the total.
+	if prev, ok := p.cache[key]; ok {
+		p.totalBytes -= int64(len(prev.body))
+	} else {
+		p.order = append(p.order, key)
+	}
+	p.cache[key] = iconEntry{
+		body:        body,
+		contentType: ct,
+		err:         fetchErr,
+		cachedAt:    time.Now(),
+	}
+	p.totalBytes += int64(len(body))
+
+	// Evict FIFO until we're back under both caps.
+	for len(p.order) > 0 && (len(p.cache) > iconCacheMaxItems || p.totalBytes > iconCacheMaxBytes) {
+		victim := p.order[0]
+		p.order = p.order[1:]
+		if victim == key {
+			// Don't evict the entry we just inserted; rotate it instead.
+			p.order = append(p.order, victim)
+			break
+		}
+		if e, ok := p.cache[victim]; ok {
+			p.totalBytes -= int64(len(e.body))
+			delete(p.cache, victim)
+		}
+	}
+}
+
+func writeIcon(w http.ResponseWriter, contentType string, body []byte) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(body)
+}
+
+func writeEmbeddedIcon(w http.ResponseWriter, cacheControl string) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", cacheControl)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(iconData)
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -191,11 +426,9 @@ func handleBundle(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(data)
 }
 
-// handleIcon serves the plugin icon.
+// handleIcon serves the plugin's own sidebar icon (embedded asset).
 func handleIcon(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	_, _ = w.Write(iconData)
+	writeEmbeddedIcon(w, "public, max-age=86400")
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -203,13 +436,14 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-func makeCatalogHandler(cache *catalogCache) http.HandlerFunc {
+func makeCatalogHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		body, stale, err := cache.get()
 		if err != nil {
 			apiError(w, http.StatusBadGateway, "failed to fetch hub index: "+err.Error())
 			return
 		}
+		body = icons.rewriteCatalogBody(body)
 		w.Header().Set("Content-Type", "application/json")
 		if stale {
 			w.Header().Set("X-Hub-Stale", "true")
@@ -270,7 +504,7 @@ func makeInstalledHandler() http.HandlerFunc {
 	}
 }
 
-func makeSummaryHandler(cache *catalogCache) http.HandlerFunc {
+func makeSummaryHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		catalogBody, stale, err := cache.get()
 		if err != nil {
@@ -310,6 +544,7 @@ func makeSummaryHandler(cache *catalogCache) http.HandlerFunc {
 				ext.InstalledVersion = ie.Version
 				ext.InstalledPhase = ie.Status.Phase
 			}
+			ext.Icon = icons.register(ext.Icon)
 			out.Extensions = append(out.Extensions, ext)
 		}
 
@@ -412,18 +647,20 @@ func installedExtensionKey(ie installedExtension) string {
 
 func main() {
 	cache := newCatalogCache(hubIndexURL(), cacheTTL())
+	icons := newIconProxy(mountPath())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /main.js", handleBundle)
 	mux.HandleFunc("GET /icon.png", handleIcon)
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("GET /api/catalog", makeCatalogHandler(cache))
+	mux.HandleFunc("GET /api/catalog", makeCatalogHandler(cache, icons))
 	mux.HandleFunc("GET /api/installed", makeInstalledHandler())
-	mux.HandleFunc("GET /api/summary", makeSummaryHandler(cache))
+	mux.HandleFunc("GET /api/summary", makeSummaryHandler(cache, icons))
+	mux.HandleFunc("GET /api/icon/{key}", icons.serve)
 
 	port := listenPort()
-	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s)",
-		port, hubIndexURL(), everestAPIURL(), cacheTTL())
+	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s, mount: %s)",
+		port, hubIndexURL(), everestAPIURL(), cacheTTL(), mountPath())
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
