@@ -345,7 +345,34 @@ const styles = {
   },
 };
 
-const ICON_FALLBACK = '/v1/plugins/plugin-hub/icon.png';
+const ICON_FALLBACK_DATA_URI =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='3'/><path d='M3 9h18M9 3v18'/></svg>",
+  );
+
+// Module-scoped record of icon URLs that already 404'd or otherwise failed.
+// Survives React re-renders so the same broken URL is never re-requested.
+const failedIconSrcs = new Set<string>();
+
+// resolveIconSrc converts whatever the backend put into entry.icon into a
+// usable <img src>. The backend now emits *relative* paths (e.g.
+// 'api/icon/<key>') for proxied icons; we prepend the plugin's runtime
+// mount prefix here so the URL is correct regardless of the release name
+// the chart was installed under.
+function resolveIconSrc(rawIcon: string | undefined, pluginName: string): string {
+  if (!rawIcon) return ICON_FALLBACK_DATA_URI;
+  if (
+    rawIcon.startsWith('data:') ||
+    rawIcon.startsWith('http://') ||
+    rawIcon.startsWith('https://') ||
+    rawIcon.startsWith('/')
+  ) {
+    return rawIcon;
+  }
+  if (!pluginName) return ICON_FALLBACK_DATA_URI;
+  return `/v1/plugins/${pluginName}/${rawIcon}`;
+}
 
 // ---------------------------------------------------------------------------
 // Data loading
@@ -547,8 +574,30 @@ function Toolbar(props: {
   );
 }
 
-function Row(props: { entry: CatalogEntry; onSelect: (e: CatalogEntry) => void }): any {
-  const { entry, onSelect } = props;
+function IconImg(props: { src: string; alt?: string; style?: any }): any {
+  const initial = failedIconSrcs.has(props.src) ? ICON_FALLBACK_DATA_URI : props.src;
+  return h('img', {
+    src: initial,
+    alt: props.alt ?? '',
+    style: props.style,
+    onError: (e: any) => {
+      const el = e.currentTarget as HTMLImageElement & { dataset: DOMStringMap };
+      if (el.dataset.failed === '1') return;
+      el.dataset.failed = '1';
+      failedIconSrcs.add(props.src);
+      if (el.src !== ICON_FALLBACK_DATA_URI) {
+        el.src = ICON_FALLBACK_DATA_URI;
+      }
+    },
+  });
+}
+
+function Row(props: {
+  entry: CatalogEntry;
+  pluginName: string;
+  onSelect: (e: CatalogEntry) => void;
+}): any {
+  const { entry, pluginName, onSelect } = props;
   const version = defaultChannelVersion(entry);
   return h(
     'tr',
@@ -560,13 +609,9 @@ function Row(props: { entry: CatalogEntry; onSelect: (e: CatalogEntry) => void }
     h(
       'td',
       { style: { ...styles.td, ...styles.iconCell } },
-      h('img', {
-        src: entry.icon || ICON_FALLBACK,
-        alt: '',
+      h(IconImg, {
+        src: resolveIconSrc(entry.icon, pluginName),
         style: styles.iconImg,
-        onError: (e: any) => {
-          e.currentTarget.src = ICON_FALLBACK;
-        },
       }),
     ),
     h(
@@ -630,8 +675,8 @@ function useAppBarOffset(): number {
   return offset;
 }
 
-function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
-  const { entry, onClose } = props;
+function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () => void }): any {
+  const { entry, pluginName, onClose } = props;
   const version = defaultChannelVersion(entry);
   const install = helmInstallCommand(entry);
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
@@ -652,7 +697,10 @@ function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
       h(
         'div',
         { style: styles.drawerHeader },
-        h('img', { src: entry.icon || ICON_FALLBACK, alt: '', style: { width: 40, height: 40 } }),
+        h(IconImg, {
+          src: resolveIconSrc(entry.icon, pluginName),
+          style: { width: 40, height: 40 },
+        }),
         h(
           'div',
           null,
@@ -931,10 +979,10 @@ const HubPage = (props: PluginRouteProps): any => {
               h('th', { style: styles.th }, 'Maturity'),
             ),
           ),
-          h('tbody', null, ...filtered.map((entry) => Row({ entry, onSelect: setSelected }))),
+          h('tbody', null, ...filtered.map((entry) => Row({ entry, pluginName: props.pluginName, onSelect: setSelected }))),
         ),
 
-    selected ? h(Drawer, { entry: selected, onClose: () => setSelected(null) }) : null,
+    selected ? h(Drawer, { entry: selected, pluginName: props.pluginName, onClose: () => setSelected(null) }) : null,
   );
 };
 

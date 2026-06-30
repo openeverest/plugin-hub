@@ -45,7 +45,6 @@ const (
 	everestCallTimeout    = 10 * time.Second
 	defaultListenPort     = "8080"
 	defaultEverestService = "http://everest-server.everest-system.svc.cluster.local:8080"
-	defaultMountPath      = "/v1/plugins/plugin-hub"
 	defaultClusterName    = "main"
 
 	iconFetchTimeout    = 8 * time.Second
@@ -93,17 +92,6 @@ func listenPort() string {
 		return p
 	}
 	return defaultListenPort
-}
-
-// mountPath is the host-relative path under which this plugin is served by
-// the OpenEverest API gateway. Rewritten icon URLs are prefixed with it so
-// the browser sees a same-origin request and the host CSP `default-src 'self'`
-// is satisfied.
-func mountPath() string {
-	if v := os.Getenv("PLUGIN_MOUNT_PATH"); v != "" {
-		return "/" + strings.Trim(v, "/")
-	}
-	return defaultMountPath
 }
 
 // clusterName is the cluster identifier used in the host API path
@@ -198,8 +186,11 @@ func (c *catalogCache) fetchLocked() ([]byte, error) {
 // The upstream catalog references icons by absolute URLs (typically
 // raw.githubusercontent.com). The host UI enforces a `default-src 'self'`
 // CSP that blocks those cross-origin image loads, so the backend rewrites
-// every absolute icon URL in the catalog/summary responses to a same-origin
-// path under this plugin's mount (e.g. /v1/plugins/plugin-hub/api/icon/<key>).
+// every absolute icon URL in the catalog/summary responses to a *relative*
+// path (e.g. `api/icon/<key>`). The frontend then prepends the plugin's
+// runtime mount prefix (`/v1/plugins/<pluginName>`) — derived from the
+// SDK-supplied pluginName — so the URL is always correct regardless of the
+// release name the chart was installed under.
 //
 // Keys are SHA-256 of the upstream URL: stable, opaque, and content-addressed
 // by URL (no caller-supplied URL parameter, no SSRF surface). Only URLs that
@@ -214,25 +205,24 @@ type iconEntry struct {
 
 type iconProxy struct {
 	mu         sync.Mutex
-	urls       map[string]string     // key -> upstream URL (populated on catalog rewrite)
-	cache      map[string]iconEntry  // key -> cached fetch result
-	order      []string              // FIFO eviction order
+	urls       map[string]string    // key -> upstream URL (populated on catalog rewrite)
+	cache      map[string]iconEntry // key -> cached fetch result
+	order      []string             // FIFO eviction order
 	totalBytes int64
 	client     *http.Client
-	mountPath  string
 }
 
-func newIconProxy(mount string) *iconProxy {
+func newIconProxy() *iconProxy {
 	return &iconProxy{
-		urls:      map[string]string{},
-		cache:     map[string]iconEntry{},
-		client:    &http.Client{Timeout: iconFetchTimeout},
-		mountPath: mount,
+		urls:   map[string]string{},
+		cache:  map[string]iconEntry{},
+		client: &http.Client{Timeout: iconFetchTimeout},
 	}
 }
 
 // register validates the URL and, if proxiable, records the mapping and
-// returns the rewritten same-origin path. Non-absolute, data:, or otherwise
+// returns a *relative* path (`api/icon/<key>`) the frontend will resolve
+// against its runtime plugin mount prefix. Non-absolute, data:, or otherwise
 // unproxiable values are returned unchanged so the frontend can still render
 // them inline.
 func (p *iconProxy) register(rawURL string) string {
@@ -252,7 +242,7 @@ func (p *iconProxy) register(rawURL string) string {
 	p.mu.Lock()
 	p.urls[key] = rawURL
 	p.mu.Unlock()
-	return p.mountPath + "/api/icon/" + key
+	return "api/icon/" + key
 }
 
 // rewriteCatalogBody parses the raw upstream catalog JSON, rewrites every
@@ -727,7 +717,7 @@ type summaryResponse struct {
 
 func main() {
 	cache := newCatalogCache(hubIndexURL(), cacheTTL())
-	icons := newIconProxy(mountPath())
+	icons := newIconProxy()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /main.js", handleBundle)
@@ -739,8 +729,8 @@ func main() {
 	mux.HandleFunc("GET /api/icon/{key}", icons.serve)
 
 	port := listenPort()
-	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s, mount: %s)",
-		port, hubIndexURL(), everestAPIURL(), cacheTTL(), mountPath())
+	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s)",
+		port, hubIndexURL(), everestAPIURL(), cacheTTL())
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
