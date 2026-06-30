@@ -1,7 +1,7 @@
 apiVersion: extensions.openeverest.io/v1alpha1
 kind: Plugin
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ include "plugin-hub.fullname" . }}
 spec:
   displayName: {{ .Values.plugin.displayName | quote }}
   description: {{ .Values.plugin.description | quote }}
