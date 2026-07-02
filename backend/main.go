@@ -44,7 +44,7 @@ const (
 	upstreamFetchTimeout  = 10 * time.Second
 	everestCallTimeout    = 10 * time.Second
 	defaultListenPort     = "8080"
-	defaultEverestService = "http://everest-server.everest-system.svc.cluster.local:8080"
+	defaultEverestService = "http://everest.everest-system.svc.cluster.local:8080"
 	defaultClusterName    = "main"
 
 	iconFetchTimeout    = 8 * time.Second
