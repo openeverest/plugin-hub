@@ -5,25 +5,93 @@
 // extensions, pulled from the host's /v1/plugins/plugin-hub/api/summary
 // endpoint (which proxies to this plugin's Go backend).
 //
-// The runtime contract follows the openeverest/generic-plugin-template
-// pattern: React and the host-authenticated fetch are injected via the
-// `register(api)` call, so this module uses React.createElement directly and
-// does not import React or any UI framework. The bundle stays small and the
-// host stays in charge of dependency versions.
+// Runtime contract (v0.2): React, MUI, Emotion and the SDK are declared as
+// external in vite.config.ts and resolved at runtime by the host's browser
+// import map. That means `import { Button } from '@mui/material'` here
+// evaluates to the exact same module instance the host loads, so the host's
+// ThemeProvider (including dark mode) applies transparently to this bundle.
+import { useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Divider,
+  Drawer,
+  FormControlLabel,
+  IconButton,
+  Link,
+  Paper,
+  Stack,
+  SvgIcon,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material';
+import type { SvgIconProps } from '@mui/material';
 import type {
   PluginRegisterFn,
   PluginApi,
   PluginRouteProps,
 } from '@openeverest/plugin-sdk';
 
-let React: PluginApi['React'];
-let pluginFetch: PluginApi['fetch'];
+// ---------------------------------------------------------------------------
+// Inline icons.
+//
+// We avoid `@mui/icons-material` imports because each icon lives at a deep
+// subpath (e.g. `@mui/icons-material/CheckCircleOutlineRounded`) that would
+// need its own entry in the host's browser import map. Native import maps
+// don't do prefix matching, so it's simpler to inline the six SVG paths
+// we actually use on top of the host-shared MUI `<SvgIcon>` component.
+// ---------------------------------------------------------------------------
 
-const h = (
-  type: any,
-  props: any,
-  ...children: any[]
-): any => React.createElement(type, props, ...children);
+const CheckCircleOutlineRoundedIcon = (props: SvgIconProps): JSX.Element => (
+  <SvgIcon {...props}>
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m3.88-11.71L10 14.17l-1.88-1.88a.9959.9959 0 0 0-1.41 0c-.39.39-.39 1.02 0 1.41l2.59 2.59c.39.39 1.02.39 1.41 0L17.39.7c.39-.39.39-1.02 0-1.41-.39-.39-1.03-.39-1.42 0" />
+  </SvgIcon>
+);
+
+const CancelOutlinedIcon = (props: SvgIconProps): JSX.Element => (
+  <SvgIcon {...props}>
+    <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m3.59-13L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41z" />
+  </SvgIcon>
+);
+
+const CloseRoundedIcon = (props: SvgIconProps): JSX.Element => (
+  <SvgIcon {...props}>
+    <path d="M18.3 5.71a.9959.9959 0 0 0-1.41 0L12 10.59 7.11 5.7a.9959.9959 0 0 0-1.41 0c-.39.39-.39 1.02 0 1.41L10.59 12 5.7 16.89c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0L12 13.41l4.89 4.89c.39.39 1.02.39 1.41 0 .39-.39.39-1.02 0-1.41L13.41 12l4.89-4.89c.38-.38.38-1.02 0-1.4" />
+  </SvgIcon>
+);
+
+const LaunchRoundedIcon = (props: SvgIconProps): JSX.Element => (
+  <SvgIcon {...props}>
+    <path d="M18 19H6c-.55 0-1-.45-1-1V6c0-.55.45-1 1-1h5c.55 0 1-.45 1-1s-.45-1-1-1H5c-1.11 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-6c0-.55-.45-1-1-1s-1 .45-1 1v5c0 .55-.45 1-1 1M14 4c0 .55.45 1 1 1h2.59l-9.13 9.13c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0L19 6.41V9c0 .55.45 1 1 1s1-.45 1-1V3h-6c-.55 0-1 .45-1 1" />
+  </SvgIcon>
+);
+
+const RefreshRoundedIcon = (props: SvgIconProps): JSX.Element => (
+  <SvgIcon {...props}>
+    <path d="M17.65 6.35c-1.63-1.63-3.94-2.57-6.48-2.31-3.67.37-6.69 3.35-7.1 7.02C3.52 15.91 7.27 20 12 20c3.19 0 5.93-1.87 7.21-4.56.32-.67-.16-1.44-.9-1.44-.37 0-.72.2-.88.53-1.13 2.43-3.84 3.97-6.8 3.31-2.22-.49-4.01-2.3-4.48-4.52C5.31 9.44 8.26 6 12 6c1.66 0 3.14.69 4.22 1.78l-1.51 1.51c-.63.63-.19 1.71.7 1.71H19c.55 0 1-.45 1-1V6.41c0-.89-1.08-1.34-1.71-.71z" />
+  </SvgIcon>
+);
+
+const SearchRoundedIcon = (props: SvgIconProps): JSX.Element => (
+  <SvgIcon {...props}>
+    <path d="M15.5 14h-.79l-.28-.27c1.2-1.4 1.82-3.31 1.48-5.34-.47-2.78-2.79-5-5.59-5.34-4.23-.52-7.79 3.04-7.27 7.27.34 2.8 2.56 5.12 5.34 5.59 2.03.34 3.94-.28 5.34-1.48l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0 .41-.41.41-1.08 0-1.49zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14" />
+  </SvgIcon>
+);
+
+// Bound at register() time so the module-level fetchSummary helper can call it.
+let pluginFetch: PluginApi['fetch'];
 
 // ---------------------------------------------------------------------------
 // Types matching the backend /api/summary shape.
@@ -71,7 +139,11 @@ interface CatalogEntry {
 
 interface SummaryResponse {
   extensions?: CatalogEntry[];
-  metadata?: { catalogId?: string; generatedAt?: string; totalExtensions?: number };
+  metadata?: {
+    catalogId?: string;
+    generatedAt?: string;
+    totalExtensions?: number;
+  };
   stale?: boolean;
   installedError?: string;
 }
@@ -82,285 +154,31 @@ interface FilterState {
   installedOnly: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Styling — inline objects, host theme inherited.
-// ---------------------------------------------------------------------------
+type ChipColor =
+  | 'default'
+  | 'primary'
+  | 'secondary'
+  | 'success'
+  | 'info'
+  | 'warning'
+  | 'error';
 
-const styles = {
-  page: { padding: '1.5rem', maxWidth: 1280, margin: '0 auto' } as const,
-  headerRow: {
-    display: 'flex',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: '1rem',
-    marginBottom: '1rem',
-    flexWrap: 'wrap' as const,
-  },
-  title: { margin: 0, fontSize: '1.5rem', fontWeight: 600 },
-  subtitle: { margin: 0, color: '#6b7280', fontSize: '0.875rem' },
-  toolbar: {
-    display: 'flex',
-    gap: '0.75rem',
-    alignItems: 'center',
-    flexWrap: 'wrap' as const,
-    padding: '0.75rem 1rem',
-    background: '#f9fafb',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    marginBottom: '1rem',
-  },
-  input: {
-    flex: '1 1 240px',
-    minWidth: 200,
-    padding: '0.5rem 0.75rem',
-    fontSize: '0.875rem',
-    border: '1px solid #d1d5db',
-    borderRadius: 6,
-    background: '#fff',
-  } as const,
-  chipGroup: { display: 'flex', gap: '0.25rem' } as const,
-  chip: (active: boolean) => ({
-    padding: '0.4rem 0.75rem',
-    fontSize: '0.8125rem',
-    border: '1px solid ' + (active ? '#1f2937' : '#d1d5db'),
-    background: active ? '#1f2937' : '#fff',
-    color: active ? '#fff' : '#374151',
-    borderRadius: 999,
-    cursor: 'pointer',
-  }),
-  checkboxRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    fontSize: '0.875rem',
-    color: '#374151',
-    cursor: 'pointer',
-  } as const,
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    background: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  th: {
-    textAlign: 'left' as const,
-    padding: '0.75rem 1rem',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    color: '#6b7280',
-    background: '#f9fafb',
-    borderBottom: '1px solid #e5e7eb',
-  },
-  td: {
-    padding: '0.75rem 1rem',
-    fontSize: '0.875rem',
-    borderBottom: '1px solid #f3f4f6',
-    verticalAlign: 'top' as const,
-  } as const,
-  iconCell: { width: 40, padding: '0.75rem', textAlign: 'center' as const },
-  iconImg: { width: 28, height: 28, objectFit: 'contain' as const },
-  statusInstalled: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  statusAvailable: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#e5e7eb',
-    color: '#374151',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  maturityChip: (maturity: string) => {
-    const m = (maturity || 'unknown').toLowerCase();
-    const palette: Record<string, { bg: string; fg: string }> = {
-      alpha: { bg: '#ffedd5', fg: '#9a3412' },
-      beta: { bg: '#dbeafe', fg: '#1e3a8a' },
-      stable: { bg: '#dcfce7', fg: '#166534' },
-      ga: { bg: '#dcfce7', fg: '#166534' },
-      deprecated: { bg: '#fee2e2', fg: '#991b1b' },
-      unknown: { bg: '#e5e7eb', fg: '#374151' },
-    };
-    const c = palette[m] ?? palette.unknown;
-    return {
-      display: 'inline-block',
-      padding: '0.15rem 0.55rem',
-      background: c.bg,
-      color: c.fg,
-      borderRadius: 999,
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      textTransform: 'capitalize' as const,
-    };
-  },
-  capChipYes: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0.15rem 0.55rem',
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    marginRight: 6,
-    marginBottom: 6,
-  } as const,
-  capChipNo: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0.15rem 0.55rem',
-    background: '#f3f4f6',
-    color: '#9ca3af',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    marginRight: 6,
-    marginBottom: 6,
-    textDecoration: 'line-through' as const,
-  } as const,
-  capRow: {
-    display: 'flex',
-    gap: '0.5rem',
-    alignItems: 'baseline',
-    marginBottom: 4,
-    flexWrap: 'wrap' as const,
-    fontSize: '0.875rem',
-  } as const,
-  capKey: { color: '#6b7280', fontWeight: 500, minWidth: 120 } as const,
-  typeChip: (type: string) => ({
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: type === 'provider' ? '#dbeafe' : '#ede9fe',
-    color: type === 'provider' ? '#1e3a8a' : '#5b21b6',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    textTransform: 'capitalize' as const,
-  }),
-  categoryTag: {
-    display: 'inline-block',
-    padding: '0.1rem 0.5rem',
-    fontSize: '0.7rem',
-    background: '#f3f4f6',
-    color: '#4b5563',
-    borderRadius: 4,
-    marginRight: 4,
-  } as const,
-  refreshBtn: {
-    padding: '0.4rem 0.9rem',
-    fontSize: '0.8125rem',
-    border: '1px solid #d1d5db',
-    background: '#fff',
-    color: '#374151',
-    borderRadius: 6,
-    cursor: 'pointer',
-  } as const,
-  empty: {
-    padding: '3rem',
-    textAlign: 'center' as const,
-    color: '#6b7280',
-  },
-  errorBox: {
-    padding: '0.75rem 1rem',
-    background: '#fee2e2',
-    color: '#991b1b',
-    border: '1px solid #fecaca',
-    borderRadius: 6,
-    marginBottom: '1rem',
-    fontSize: '0.875rem',
-  },
-  warnBox: {
-    padding: '0.6rem 1rem',
-    background: '#fef3c7',
-    color: '#92400e',
-    border: '1px solid #fde68a',
-    borderRadius: 6,
-    marginBottom: '1rem',
-    fontSize: '0.8125rem',
-  },
-  drawerBackdrop: {
-    position: 'fixed' as const,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    background: 'rgba(15, 23, 42, 0.4)',
-    // Sit above MUI's permanent drawer (1200) but below the host's AppBar
-    // (1100 by default, but some themes push it higher) — the `top` offset
-    // is computed at render time so the AppBar always stays visible.
-    zIndex: 1200,
-    display: 'flex',
-    justifyContent: 'flex-end',
-  },
-  drawer: {
-    width: 'min(560px, 100%)',
-    height: '100%',
-    background: '#fff',
-    boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.15)',
-    overflowY: 'auto' as const,
-    padding: '1.5rem',
-    boxSizing: 'border-box' as const,
-  },
-  drawerHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-    marginBottom: '1rem',
-  },
-  closeBtn: {
-    marginLeft: 'auto',
-    border: 'none',
-    background: 'transparent',
-    fontSize: '1.5rem',
-    cursor: 'pointer',
-    color: '#6b7280',
-  } as const,
-  section: { marginTop: '1.25rem' } as const,
-  sectionTitle: {
-    margin: '0 0 0.5rem',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    color: '#6b7280',
-    letterSpacing: '0.05em',
-  },
-  codeBlock: {
-    background: '#0f172a',
-    color: '#e2e8f0',
-    padding: '0.75rem 1rem',
-    borderRadius: 6,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    fontSize: '0.8125rem',
-    whiteSpace: 'pre' as const,
-    overflowX: 'auto' as const,
-  },
-};
+// ---------------------------------------------------------------------------
+// Icons
+// ---------------------------------------------------------------------------
 
 const ICON_FALLBACK_DATA_URI =
-  "data:image/svg+xml;utf8," +
+  'data:image/svg+xml;utf8,' +
   encodeURIComponent(
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='3'/><path d='M3 9h18M9 3v18'/></svg>",
   );
 
-// Module-scoped record of icon URLs that already 404'd or otherwise failed.
-// Survives React re-renders so the same broken URL is never re-requested.
 const failedIconSrcs = new Set<string>();
 
-// resolveIconSrc converts whatever the backend put into entry.icon into a
-// usable <img src>. The backend now emits *relative* paths (e.g.
-// 'api/icon/<key>') for proxied icons; we prepend the plugin's runtime
-// mount prefix here so the URL is correct regardless of the release name
-// the chart was installed under.
-function resolveIconSrc(rawIcon: string | undefined, pluginName: string): string {
+function resolveIconSrc(
+  rawIcon: string | undefined,
+  pluginName: string,
+): string {
   if (!rawIcon) return ICON_FALLBACK_DATA_URI;
   if (
     rawIcon.startsWith('data:') ||
@@ -372,6 +190,67 @@ function resolveIconSrc(rawIcon: string | undefined, pluginName: string): string
   }
   if (!pluginName) return ICON_FALLBACK_DATA_URI;
   return `/v1/plugins/${pluginName}/${rawIcon}`;
+}
+
+interface IconImgProps {
+  src: string;
+  alt?: string;
+  size?: number;
+}
+
+function IconImg({ src, alt, size = 28 }: IconImgProps): JSX.Element {
+  const initial = failedIconSrcs.has(src) ? ICON_FALLBACK_DATA_URI : src;
+  return (
+    <Avatar
+      variant="rounded"
+      src={initial}
+      alt={alt ?? ''}
+      sx={{
+        width: size,
+        height: size,
+        bgcolor: 'transparent',
+        '& img': { objectFit: 'contain' },
+      }}
+      imgProps={{
+        onError: (e) => {
+          const el = e.currentTarget as HTMLImageElement & {
+            dataset: DOMStringMap;
+          };
+          if (el.dataset.failed === '1') return;
+          el.dataset.failed = '1';
+          failedIconSrcs.add(src);
+          if (el.src !== ICON_FALLBACK_DATA_URI) {
+            el.src = ICON_FALLBACK_DATA_URI;
+          }
+        },
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Chip color helpers — all resolved through the host MUI theme so dark mode
+// picks up the correct palette automatically.
+// ---------------------------------------------------------------------------
+
+function maturityColor(maturity: string | undefined): ChipColor {
+  switch ((maturity || 'unknown').toLowerCase()) {
+    case 'ga':
+    case 'stable':
+      return 'success';
+    case 'beta':
+      return 'info';
+    case 'alpha':
+      return 'warning';
+    case 'deprecated':
+      return 'error';
+    default:
+      return 'default';
+  }
+}
+
+function typeColor(type: string): ChipColor {
+  return type === 'provider' ? 'info' : 'secondary';
 }
 
 // ---------------------------------------------------------------------------
@@ -386,10 +265,6 @@ async function fetchSummary(): Promise<SummaryResponse> {
   }
   return res.json();
 }
-
-// ---------------------------------------------------------------------------
-// Catalog table
-// ---------------------------------------------------------------------------
 
 function matchesFilter(entry: CatalogEntry, filter: FilterState): boolean {
   if (filter.type !== 'all' && entry.type !== filter.type) return false;
@@ -420,7 +295,8 @@ function defaultChannelVersion(entry: CatalogEntry): string | null {
 
 function helmInstallCommand(entry: CatalogEntry): string {
   const chart = entry.artifacts?.chart;
-  const channel = chart?.defaultChannel ?? Object.keys(chart?.channels ?? {})[0] ?? '';
+  const channel =
+    chart?.defaultChannel ?? Object.keys(chart?.channels ?? {})[0] ?? '';
   const ref = chart?.channels?.[channel]?.ref ?? '<chart-ref>';
   const version = chart?.channels?.[channel]?.version ?? '<version>';
   const release = entry.install?.helm?.releaseName ?? entry.name;
@@ -439,424 +315,546 @@ function humanizeKey(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function renderCapabilityValue(key: string, value: unknown): any {
-  const label = humanizeKey(key);
+// ---------------------------------------------------------------------------
+// Capabilities renderer
+// ---------------------------------------------------------------------------
+
+function CapabilityValue({
+  name,
+  value,
+}: {
+  name: string;
+  value: unknown;
+}): JSX.Element | null {
+  const label = humanizeKey(name);
   if (typeof value === 'boolean') {
-    return value
-      ? h('span', { key, style: styles.capChipYes }, `\u2713 ${label}`)
-      : h('span', { key, style: styles.capChipNo }, `\u2717 ${label}`);
+    return (
+      <Chip
+        size="small"
+        variant={value ? 'filled' : 'outlined'}
+        color={value ? 'success' : 'default'}
+        icon={
+          value ? (
+            <CheckCircleOutlineRoundedIcon fontSize="small" />
+          ) : (
+            <CancelOutlinedIcon fontSize="small" />
+          )
+        }
+        label={label}
+        sx={{
+          mr: 0.75,
+          mb: 0.75,
+          ...(value
+            ? {}
+            : { textDecoration: 'line-through', color: 'text.disabled' }),
+        }}
+      />
+    );
   }
   if (Array.isArray(value)) {
-    return h(
-      'div',
-      { key, style: styles.capRow },
-      h('span', { style: styles.capKey }, label),
-      h(
-        'div',
-        null,
-        ...value.map((v, i) =>
-          h('span', { key: i, style: styles.categoryTag }, String(v)),
-        ),
-      ),
+    return (
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="baseline"
+        flexWrap="wrap"
+        sx={{ mb: 0.5 }}
+      >
+        <Typography
+          variant="body2"
+          sx={{ color: 'text.secondary', minWidth: 120 }}
+        >
+          {label}
+        </Typography>
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+          {value.map((v, i) => (
+            <Chip key={i} size="small" variant="outlined" label={String(v)} />
+          ))}
+        </Stack>
+      </Stack>
     );
   }
   if (value === null || value === undefined) return null;
   if (typeof value === 'object') {
-    return h(
-      'div',
-      { key, style: styles.capRow },
-      h('span', { style: styles.capKey }, label),
-      h(
-        'code',
-        { style: { fontSize: '0.8125rem', color: '#374151' } },
-        JSON.stringify(value),
-      ),
+    return (
+      <Stack direction="row" spacing={1} alignItems="baseline" sx={{ mb: 0.5 }}>
+        <Typography
+          variant="body2"
+          sx={{ color: 'text.secondary', minWidth: 120 }}
+        >
+          {label}
+        </Typography>
+        <Box
+          component="code"
+          sx={{ fontSize: '0.8125rem', color: 'text.primary' }}
+        >
+          {JSON.stringify(value)}
+        </Box>
+      </Stack>
     );
   }
-  return h(
-    'div',
-    { key, style: styles.capRow },
-    h('span', { style: styles.capKey }, label),
-    h('span', { style: { color: '#111827' } }, String(value)),
+  return (
+    <Stack direction="row" spacing={1} alignItems="baseline" sx={{ mb: 0.5 }}>
+      <Typography
+        variant="body2"
+        sx={{ color: 'text.secondary', minWidth: 120 }}
+      >
+        {label}
+      </Typography>
+      <Typography variant="body2">{String(value)}</Typography>
+    </Stack>
   );
 }
 
-function renderCapabilities(caps: Record<string, unknown>): any {
+function Capabilities({
+  caps,
+}: {
+  caps: Record<string, unknown>;
+}): JSX.Element | null {
   const entries = Object.entries(caps);
   if (!entries.length) return null;
   const booleans = entries.filter(([, v]) => typeof v === 'boolean');
   const others = entries.filter(([, v]) => typeof v !== 'boolean');
-  return h(
-    'div',
-    null,
-    booleans.length
-      ? h(
-          'div',
-          { style: { marginBottom: others.length ? '0.75rem' : 0 } },
-          ...booleans.map(([k, v]) => renderCapabilityValue(k, v)),
-        )
-      : null,
-    others.length ? h('div', null, ...others.map(([k, v]) => renderCapabilityValue(k, v))) : null,
+  return (
+    <Box>
+      {booleans.length > 0 && (
+        <Box sx={{ mb: others.length ? 1.5 : 0 }}>
+          {booleans.map(([k, v]) => (
+            <CapabilityValue key={k} name={k} value={v} />
+          ))}
+        </Box>
+      )}
+      {others.length > 0 && (
+        <Box>
+          {others.map(([k, v]) => (
+            <CapabilityValue key={k} name={k} value={v} />
+          ))}
+        </Box>
+      )}
+    </Box>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Components
+// Toolbar
 // ---------------------------------------------------------------------------
 
-function Toolbar(props: {
+interface ToolbarProps {
   filter: FilterState;
   onChange: (f: FilterState) => void;
   onRefresh: () => void;
   refreshing: boolean;
   lastRefreshed: Date | null;
-}): any {
-  const { filter, onChange, onRefresh, refreshing, lastRefreshed } = props;
+}
+
+function Toolbar({
+  filter,
+  onChange,
+  onRefresh,
+  refreshing,
+  lastRefreshed,
+}: ToolbarProps): JSX.Element {
   const chipDefs: Array<{ key: FilterState['type']; label: string }> = [
     { key: 'all', label: 'All' },
     { key: 'plugin', label: 'Plugins' },
     { key: 'provider', label: 'Providers' },
   ];
-  return h(
-    'div',
-    { style: styles.toolbar },
-    h('input', {
-      type: 'search',
-      placeholder: 'Search by name, description, category…',
-      value: filter.query,
-      style: styles.input,
-      onChange: (e: any) => onChange({ ...filter, query: e.target.value }),
-    }),
-    h(
-      'div',
-      { style: styles.chipGroup },
-      ...chipDefs.map((c) =>
-        h(
-          'button',
-          {
-            key: c.key,
-            type: 'button',
-            style: styles.chip(filter.type === c.key),
-            onClick: () => onChange({ ...filter, type: c.key }),
-          },
-          c.label,
-        ),
-      ),
-    ),
-    h(
-      'label',
-      { style: styles.checkboxRow },
-      h('input', {
-        type: 'checkbox',
-        checked: filter.installedOnly,
-        onChange: (e: any) =>
-          onChange({ ...filter, installedOnly: e.target.checked }),
-      }),
-      'Installed only',
-    ),
-    h(
-      'button',
-      {
-        type: 'button',
-        style: styles.refreshBtn,
-        onClick: onRefresh,
-        disabled: refreshing,
-      },
-      refreshing ? 'Refreshing…' : 'Refresh',
-    ),
-    lastRefreshed
-      ? h(
-          'span',
-          { style: { fontSize: '0.75rem', color: '#6b7280' } },
-          `Updated ${lastRefreshed.toLocaleTimeString()}`,
-        )
-      : null,
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        display: 'flex',
+        gap: 1.5,
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        px: 2,
+        py: 1.25,
+        mb: 2,
+      }}
+    >
+      <TextField
+        size="small"
+        type="search"
+        placeholder="Search by name, description, category…"
+        value={filter.query}
+        onChange={(e) => onChange({ ...filter, query: e.target.value })}
+        InputProps={{
+          startAdornment: (
+            <SearchRoundedIcon
+              fontSize="small"
+              sx={{ color: 'text.secondary', mr: 1 }}
+            />
+          ),
+        }}
+        sx={{ flex: '1 1 240px', minWidth: 200 }}
+      />
+      <Stack direction="row" spacing={0.5}>
+        {chipDefs.map((c) => {
+          const active = filter.type === c.key;
+          return (
+            <Chip
+              key={c.key}
+              label={c.label}
+              size="small"
+              onClick={() => onChange({ ...filter, type: c.key })}
+              color={active ? 'primary' : 'default'}
+              variant={active ? 'filled' : 'outlined'}
+              sx={{ cursor: 'pointer' }}
+            />
+          );
+        })}
+      </Stack>
+      <FormControlLabel
+        control={
+          <Checkbox
+            size="small"
+            checked={filter.installedOnly}
+            onChange={(e) =>
+              onChange({ ...filter, installedOnly: e.target.checked })
+            }
+          />
+        }
+        label={<Typography variant="body2">Installed only</Typography>}
+      />
+      <Button
+        size="small"
+        variant="outlined"
+        onClick={onRefresh}
+        disabled={refreshing}
+        startIcon={
+          refreshing ? (
+            <CircularProgress size={14} thickness={5} />
+          ) : (
+            <RefreshRoundedIcon fontSize="small" />
+          )
+        }
+      >
+        {refreshing ? 'Refreshing…' : 'Refresh'}
+      </Button>
+      {lastRefreshed && (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          Updated {lastRefreshed.toLocaleTimeString()}
+        </Typography>
+      )}
+    </Paper>
   );
 }
 
-function IconImg(props: { src: string; alt?: string; style?: any }): any {
-  const initial = failedIconSrcs.has(props.src) ? ICON_FALLBACK_DATA_URI : props.src;
-  return h('img', {
-    src: initial,
-    alt: props.alt ?? '',
-    style: props.style,
-    onError: (e: any) => {
-      const el = e.currentTarget as HTMLImageElement & { dataset: DOMStringMap };
-      if (el.dataset.failed === '1') return;
-      el.dataset.failed = '1';
-      failedIconSrcs.add(props.src);
-      if (el.src !== ICON_FALLBACK_DATA_URI) {
-        el.src = ICON_FALLBACK_DATA_URI;
-      }
-    },
-  });
-}
+// ---------------------------------------------------------------------------
+// Table row
+// ---------------------------------------------------------------------------
 
-function Row(props: {
+interface RowProps {
   entry: CatalogEntry;
   pluginName: string;
   onSelect: (e: CatalogEntry) => void;
-}): any {
-  const { entry, pluginName, onSelect } = props;
+}
+
+function Row({ entry, pluginName, onSelect }: RowProps): JSX.Element {
   const version = defaultChannelVersion(entry);
-  return h(
-    'tr',
-    {
-      key: entry.name,
-      style: { cursor: 'pointer' },
-      onClick: () => onSelect(entry),
-    },
-    h(
-      'td',
-      { style: { ...styles.td, ...styles.iconCell } },
-      h(IconImg, {
-        src: resolveIconSrc(entry.icon, pluginName),
-        style: styles.iconImg,
-      }),
-    ),
-    h(
-      'td',
-      { style: styles.td },
-      h('div', { style: { fontWeight: 600 } }, entry.displayName || entry.name),
-      h(
-        'div',
-        { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: 2 } },
-        entry.name,
-      ),
-    ),
-    h('td', { style: styles.td }, h('span', { style: styles.typeChip(entry.type) }, entry.type)),
-    h('td', { style: styles.td }, version ?? '—'),
-    h(
-      'td',
-      { style: styles.td },
-      ...(entry.categories ?? []).map((c) =>
-        h('span', { key: c, style: styles.categoryTag }, c),
-      ),
-    ),
-    h(
-      'td',
-      { style: styles.td },
-      h(
-        'div',
-        { style: { display: 'flex', flexDirection: 'column' as const, gap: 4, alignItems: 'flex-start' } },
-        h(
-          'span',
-          { style: styles.maturityChip(entry.maturity || 'unknown') },
-          entry.maturity || 'unknown',
-        ),
-        entry.installed
-          ? h(
-              'span',
-              { style: styles.statusInstalled },
-              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
-            )
-          : null,
-      ),
-    ),
+  return (
+    <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => onSelect(entry)}>
+      <TableCell sx={{ width: 56 }}>
+        <IconImg src={resolveIconSrc(entry.icon, pluginName)} size={32} />
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          {entry.displayName || entry.name}
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{ color: 'text.secondary', display: 'block' }}
+        >
+          {entry.name}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Chip
+          size="small"
+          label={entry.type}
+          color={typeColor(entry.type)}
+          variant="outlined"
+          sx={{ textTransform: 'capitalize' }}
+        />
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2">{version ?? '—'}</Typography>
+      </TableCell>
+      <TableCell>
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+          {(entry.categories ?? []).map((c) => (
+            <Chip key={c} size="small" variant="outlined" label={c} />
+          ))}
+        </Stack>
+      </TableCell>
+      <TableCell>
+        <Stack spacing={0.5} alignItems="flex-start">
+          <Chip
+            size="small"
+            label={entry.maturity || 'unknown'}
+            color={maturityColor(entry.maturity)}
+            variant="filled"
+            sx={{ textTransform: 'capitalize' }}
+          />
+          {entry.installed && (
+            <Chip
+              size="small"
+              color="success"
+              variant="outlined"
+              label={
+                entry.installedVersion
+                  ? `Installed · ${entry.installedVersion}`
+                  : 'Installed'
+              }
+            />
+          )}
+        </Stack>
+      </TableCell>
+    </TableRow>
   );
 }
 
-function measureAppBar(): number {
-  if (typeof document === 'undefined') return 64;
-  const ab = document.querySelector('header.MuiAppBar-root') as HTMLElement | null;
-  if (!ab) return 64;
-  const height = Math.round(ab.getBoundingClientRect().height);
-  return height > 0 ? height : 64;
+// ---------------------------------------------------------------------------
+// Detail drawer content
+// ---------------------------------------------------------------------------
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <Box sx={{ mt: 2.5 }}>
+      <Typography
+        variant="overline"
+        sx={{
+          display: 'block',
+          color: 'text.secondary',
+          letterSpacing: '0.05em',
+          mb: 1,
+        }}
+      >
+        {title}
+      </Typography>
+      <Divider sx={{ mb: 1.25 }} />
+      {children}
+    </Box>
+  );
 }
 
-function useAppBarOffset(): number {
-  const [offset, setOffset] = React.useState<number>(measureAppBar);
-  React.useEffect(() => {
-    const update = () => setOffset(measureAppBar());
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return offset;
+function MetaLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): JSX.Element {
+  return (
+    <Typography variant="body2">
+      <Box component="span" sx={{ fontWeight: 600 }}>
+        {label}:{' '}
+      </Box>
+      {value}
+    </Typography>
+  );
 }
 
-function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () => void }): any {
-  const { entry, pluginName, onClose } = props;
+interface DrawerContentProps {
+  entry: CatalogEntry;
+  pluginName: string;
+  onClose: () => void;
+}
+
+function DetailDrawer({
+  entry,
+  pluginName,
+  onClose,
+}: DrawerContentProps): JSX.Element {
   const version = defaultChannelVersion(entry);
   const install = helmInstallCommand(entry);
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
-  const appbarOffset = useAppBarOffset();
-  const backdropStyle = { ...styles.drawerBackdrop, top: appbarOffset };
 
-  return h(
-    'div',
-    { style: backdropStyle, onClick: onClose },
-    h(
-      'div',
-      {
-        style: styles.drawer,
-        onClick: (e: any) => e.stopPropagation(),
-      },
-      h(
-        'div',
-        { style: styles.drawerHeader },
-        h(IconImg, {
-          src: resolveIconSrc(entry.icon, pluginName),
-          style: { width: 40, height: 40 },
-        }),
-        h(
-          'div',
-          null,
-          h(
-            'h2',
-            { style: { margin: 0, fontSize: '1.25rem', fontWeight: 600 } },
-            entry.displayName || entry.name,
-          ),
-          h(
-            'div',
-            { style: { color: '#6b7280', fontSize: '0.8125rem' } },
-            entry.name,
-            ' · ',
-            h('span', { style: styles.typeChip(entry.type) }, entry.type),
-          ),
-        ),
-        h('button', { type: 'button', style: styles.closeBtn, onClick: onClose }, '×'),
-      ),
+  return (
+    <Box
+      role="presentation"
+      sx={{ width: { xs: '100vw', sm: 560 }, p: 3, boxSizing: 'border-box' }}
+    >
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+        <IconImg src={resolveIconSrc(entry.icon, pluginName)} size={40} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            {entry.displayName || entry.name}
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            sx={{ color: 'text.secondary' }}
+          >
+            <Typography variant="caption" noWrap>
+              {entry.name}
+            </Typography>
+            <Chip
+              size="small"
+              label={entry.type}
+              color={typeColor(entry.type)}
+              variant="outlined"
+              sx={{ textTransform: 'capitalize' }}
+            />
+          </Stack>
+        </Box>
+        <IconButton aria-label="Close" onClick={onClose} size="small">
+          <CloseRoundedIcon />
+        </IconButton>
+      </Stack>
 
-      entry.installed
-        ? h(
-            'div',
-            { style: { marginBottom: '1rem' } },
-            h(
-              'span',
-              { style: styles.statusInstalled },
-              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
-            ),
-            entry.installedPhase
-              ? h(
-                  'span',
-                  { style: { marginLeft: 8, color: '#6b7280', fontSize: '0.8125rem' } },
-                  `Phase: ${entry.installedPhase}`,
-                )
-              : null,
-          )
-        : null,
+      {entry.installed && (
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+          <Chip
+            size="small"
+            color="success"
+            variant="filled"
+            label={
+              entry.installedVersion
+                ? `Installed · ${entry.installedVersion}`
+                : 'Installed'
+            }
+          />
+          {entry.installedPhase && (
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              Phase: {entry.installedPhase}
+            </Typography>
+          )}
+        </Stack>
+      )}
 
-      entry.description
-        ? h(
-            'p',
-            { style: { color: '#374151', whiteSpace: 'pre-line' } },
-            entry.description,
-          )
-        : null,
+      {entry.description && (
+        <Typography
+          variant="body2"
+          sx={{ whiteSpace: 'pre-line', color: 'text.primary', mb: 2 }}
+        >
+          {entry.description}
+        </Typography>
+      )}
 
-      h(
-        'div',
-        { style: styles.section },
-        h('h3', { style: styles.sectionTitle }, 'Metadata'),
-        h(
-          'div',
-          { style: { fontSize: '0.875rem', lineHeight: 1.7 } },
-          version ? h('div', null, h('b', null, 'Version: '), version) : null,
-          entry.maturity
-            ? h(
-                'div',
-                null,
-                h('b', null, 'Maturity: '),
-                h(
-                  'span',
-                  { style: styles.maturityChip(entry.maturity) },
-                  entry.maturity,
-                ),
-              )
-            : null,
-          entry.compatibility?.openeverest
-            ? h('div', null, h('b', null, 'Requires OpenEverest: '), entry.compatibility.openeverest)
-            : null,
-          entry.license ? h('div', null, h('b', null, 'License: '), entry.license) : null,
-          entry.verified
-            ? h('div', null, h('b', null, 'Verified: '), 'yes')
-            : null,
-        ),
-      ),
+      <Section title="Metadata">
+        <Stack spacing={0.75}>
+          {version && <MetaLine label="Version" value={version} />}
+          {entry.maturity && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Maturity:
+              </Typography>
+              <Chip
+                size="small"
+                label={entry.maturity}
+                color={maturityColor(entry.maturity)}
+                variant="filled"
+                sx={{ textTransform: 'capitalize' }}
+              />
+            </Stack>
+          )}
+          {entry.compatibility?.openeverest && (
+            <MetaLine
+              label="Requires OpenEverest"
+              value={entry.compatibility.openeverest}
+            />
+          )}
+          {entry.license && <MetaLine label="License" value={entry.license} />}
+          {entry.verified && <MetaLine label="Verified" value="yes" />}
+        </Stack>
+      </Section>
 
-      extensionPoints.length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Extension points'),
-            h(
-              'div',
-              null,
-              ...extensionPoints.map((p) => h('span', { key: p, style: styles.categoryTag }, p)),
-            ),
-          )
-        : null,
+      {extensionPoints.length > 0 && (
+        <Section title="Extension points">
+          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+            {extensionPoints.map((p) => (
+              <Chip key={p} size="small" variant="outlined" label={p} />
+            ))}
+          </Stack>
+        </Section>
+      )}
 
-      supportedEngines.length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Supported engines'),
-            h(
-              'div',
-              null,
-              ...supportedEngines.map((e) => h('span', { key: e, style: styles.categoryTag }, e)),
-            ),
-          )
-        : null,
+      {supportedEngines.length > 0 && (
+        <Section title="Supported engines">
+          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+            {supportedEngines.map((e) => (
+              <Chip key={e} size="small" variant="outlined" label={e} />
+            ))}
+          </Stack>
+        </Section>
+      )}
 
-      entry.capabilities && Object.keys(entry.capabilities).length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Capabilities'),
-            renderCapabilities(entry.capabilities),
-          )
-        : null,
+      {entry.capabilities && Object.keys(entry.capabilities).length > 0 && (
+        <Section title="Capabilities">
+          <Capabilities caps={entry.capabilities} />
+        </Section>
+      )}
 
-      maintainers.length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Maintainers'),
-            h(
-              'ul',
-              { style: { margin: 0, paddingLeft: '1.25rem', fontSize: '0.875rem' } },
-              ...maintainers.map((m, i) =>
-                h('li', { key: i }, m.name || m.github || m.email || 'unknown'),
-              ),
-            ),
-          )
-        : null,
+      {maintainers.length > 0 && (
+        <Section title="Maintainers">
+          <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+            {maintainers.map((m, i) => (
+              <Box component="li" key={i} sx={{ fontSize: '0.875rem' }}>
+                {m.name || m.github || m.email || 'unknown'}
+              </Box>
+            ))}
+          </Box>
+        </Section>
+      )}
 
-      h(
-        'div',
-        { style: styles.section },
-        h('h3', { style: styles.sectionTitle }, 'Install with Helm'),
-        h('pre', { style: styles.codeBlock }, install),
-      ),
+      <Section title="Install with Helm">
+        <Box
+          component="pre"
+          sx={{
+            m: 0,
+            p: 1.5,
+            borderRadius: 1,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            fontSize: '0.8125rem',
+            whiteSpace: 'pre',
+            overflowX: 'auto',
+            bgcolor: 'grey.900',
+            color: 'grey.100',
+          }}
+        >
+          {install}
+        </Box>
+      </Section>
 
-      h(
-        'div',
-        { style: styles.section },
-        h(
-          'div',
-          { style: { display: 'flex', gap: '0.75rem', flexWrap: 'wrap' } },
-          entry.sourceRepo
-            ? h(
-                'a',
-                { href: entry.sourceRepo, target: '_blank', rel: 'noopener noreferrer' },
-                'Source repository ↗',
-              )
-            : null,
-          entry.homepage
-            ? h(
-                'a',
-                { href: entry.homepage, target: '_blank', rel: 'noopener noreferrer' },
-                'Homepage ↗',
-              )
-            : null,
-        ),
-      ),
-    ),
+      {(entry.sourceRepo || entry.homepage) && (
+        <Box sx={{ mt: 2.5 }}>
+          <Stack direction="row" spacing={2} flexWrap="wrap">
+            {entry.sourceRepo && (
+              <Link
+                href={entry.sourceRepo}
+                target="_blank"
+                rel="noopener noreferrer"
+                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+              >
+                Source repository
+                <LaunchRoundedIcon fontSize="inherit" />
+              </Link>
+            )}
+            {entry.homepage && (
+              <Link
+                href={entry.homepage}
+                target="_blank"
+                rel="noopener noreferrer"
+                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+              >
+                Homepage
+                <LaunchRoundedIcon fontSize="inherit" />
+              </Link>
+            )}
+          </Stack>
+        </Box>
+      )}
+    </Box>
   );
 }
 
@@ -864,19 +862,19 @@ function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () =>
 // Page
 // ---------------------------------------------------------------------------
 
-const HubPage = (props: PluginRouteProps): any => {
-  const [data, setData] = React.useState<SummaryResponse | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState<boolean>(true);
-  const [lastRefreshed, setLastRefreshed] = React.useState<Date | null>(null);
-  const [filter, setFilter] = React.useState<FilterState>({
+function HubPage(props: PluginRouteProps): JSX.Element {
+  const [data, setData] = useState<SummaryResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [filter, setFilter] = useState<FilterState>({
     query: '',
     type: 'all',
     installedOnly: false,
   });
-  const [selected, setSelected] = React.useState<CatalogEntry | null>(null);
+  const [selected, setSelected] = useState<CatalogEntry | null>(null);
 
-  const load = React.useCallback(() => {
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
     fetchSummary()
@@ -888,7 +886,7 @@ const HubPage = (props: PluginRouteProps): any => {
       .finally(() => setLoading(false));
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     load();
   }, [load]);
 
@@ -896,102 +894,137 @@ const HubPage = (props: PluginRouteProps): any => {
   const filtered = entries.filter((e) => matchesFilter(e, filter));
   const counts = {
     total: entries.length,
-    plugin: entries.filter((e) => e.type === 'plugin').length,
-    provider: entries.filter((e) => e.type === 'provider').length,
     installed: entries.filter((e) => e.installed).length,
   };
 
-  return h(
-    'div',
-    { style: styles.page },
-    h(
-      'div',
-      { style: styles.headerRow },
-      h(
-        'div',
-        null,
-        h('h1', { style: styles.title }, 'Plugin Hub'),
-        h(
-          'p',
-          { style: styles.subtitle },
-          `Browse OpenEverest plugins and providers. ${counts.total} available · ${counts.installed} installed.`,
-        ),
-      ),
-      props.pluginName
-        ? h(
-            'span',
-            { style: { fontSize: '0.75rem', color: '#9ca3af' } },
-            `plugin: ${props.pluginName}`,
-          )
-        : null,
-    ),
+  return (
+    <Box sx={{ p: 3, maxWidth: 1280, mx: 'auto' }}>
+      <Stack
+        direction="row"
+        alignItems="baseline"
+        justifyContent="space-between"
+        flexWrap="wrap"
+        spacing={2}
+        sx={{ mb: 2 }}
+      >
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            Plugin Hub
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            Browse OpenEverest plugins and providers. {counts.total} available
+            · {counts.installed} installed.
+          </Typography>
+        </Box>
+        {props.pluginName && (
+          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+            plugin: {props.pluginName}
+          </Typography>
+        )}
+      </Stack>
 
-    error
-      ? h('div', { style: styles.errorBox }, `Failed to load catalog: ${error}`)
-      : null,
-    data?.stale
-      ? h(
-          'div',
-          { style: styles.warnBox },
-          'Showing cached catalog — upstream hub index is currently unreachable.',
-        )
-      : null,
-    data?.installedError
-      ? h(
-          'div',
-          { style: styles.warnBox },
-          `Could not load installed extensions: ${data.installedError}. Showing catalog without install status.`,
-        )
-      : null,
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Failed to load catalog: {error}
+        </Alert>
+      )}
+      {data?.stale && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Showing cached catalog — upstream hub index is currently unreachable.
+        </Alert>
+      )}
+      {data?.installedError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Could not load installed extensions: {data.installedError}. Showing
+          catalog without install status.
+        </Alert>
+      )}
 
-    h(Toolbar, {
-      filter,
-      onChange: setFilter,
-      onRefresh: load,
-      refreshing: loading,
-      lastRefreshed,
-    }),
+      <Toolbar
+        filter={filter}
+        onChange={setFilter}
+        onRefresh={load}
+        refreshing={loading}
+        lastRefreshed={lastRefreshed}
+      />
 
-    loading && !data
-      ? h('div', { style: styles.empty }, 'Loading catalog…')
-      : filtered.length === 0
-      ? h(
-          'div',
-          { style: styles.empty },
-          entries.length === 0
-            ? 'No extensions in the catalog.'
-            : 'No extensions match the current filters.',
-        )
-      : h(
-          'table',
-          { style: styles.table },
-          h(
-            'thead',
-            null,
-            h(
-              'tr',
-              null,
-              h('th', { style: { ...styles.th, ...styles.iconCell } }, ''),
-              h('th', { style: styles.th }, 'Name'),
-              h('th', { style: styles.th }, 'Type'),
-              h('th', { style: styles.th }, 'Version'),
-              h('th', { style: styles.th }, 'Categories'),
-              h('th', { style: styles.th }, 'Maturity'),
-            ),
-          ),
-          h('tbody', null, ...filtered.map((entry) => Row({ entry, pluginName: props.pluginName, onSelect: setSelected }))),
-        ),
+      {loading && !data ? (
+        <Box
+          sx={{
+            py: 6,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: 2,
+            color: 'text.secondary',
+          }}
+        >
+          <CircularProgress size={20} />
+          <Typography variant="body2">Loading catalog…</Typography>
+        </Box>
+      ) : filtered.length === 0 ? (
+        <Box
+          sx={{
+            py: 6,
+            textAlign: 'center',
+            color: 'text.secondary',
+          }}
+        >
+          <Typography variant="body2">
+            {entries.length === 0
+              ? 'No extensions in the catalog.'
+              : 'No extensions match the current filters.'}
+          </Typography>
+        </Box>
+      ) : (
+        <TableContainer component={Paper} variant="outlined">
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: 56 }} />
+                <TableCell>Name</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Version</TableCell>
+                <TableCell>Categories</TableCell>
+                <TableCell>Maturity</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filtered.map((entry) => (
+                <Row
+                  key={entry.name}
+                  entry={entry}
+                  pluginName={props.pluginName}
+                  onSelect={setSelected}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
 
-    selected ? h(Drawer, { entry: selected, pluginName: props.pluginName, onClose: () => setSelected(null) }) : null,
+      <Drawer
+        anchor="right"
+        open={!!selected}
+        onClose={() => setSelected(null)}
+      >
+        {selected && (
+          <DetailDrawer
+            entry={selected}
+            pluginName={props.pluginName}
+            onClose={() => setSelected(null)}
+          />
+        )}
+      </Drawer>
+    </Box>
   );
-};
+}
 
 // ---------------------------------------------------------------------------
 // Plugin registration
 // ---------------------------------------------------------------------------
 
 const register: PluginRegisterFn = (api: PluginApi) => {
-  React = api.React;
   pluginFetch = api.fetch.bind(api);
 
   api.registerExtension({
