@@ -90,7 +90,7 @@ const styles = {
   page: { padding: '1.5rem', maxWidth: 1280, margin: '0 auto' } as const,
   headerRow: {
     display: 'flex',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: '1rem',
     marginBottom: '1rem',
@@ -265,6 +265,29 @@ const styles = {
     color: '#374151',
     borderRadius: 6,
     cursor: 'pointer',
+  } as const,
+  ctaBtn: {
+    padding: '0.5rem 1rem',
+    fontSize: '0.875rem',
+    fontWeight: 500,
+    border: '1px solid #2563eb',
+    background: '#2563eb',
+    color: '#fff',
+    borderRadius: 6,
+    cursor: 'pointer',
+    textDecoration: 'none',
+    display: 'inline-block',
+  } as const,
+  ctaLink: {
+    fontSize: '0.8125rem',
+    color: '#6b7280',
+    textDecoration: 'none',
+  } as const,
+  headerActions: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'flex-end',
+    gap: '0.375rem',
   } as const,
   empty: {
     padding: '3rem',
@@ -910,20 +933,37 @@ const HubPage = (props: PluginRouteProps): any => {
       h(
         'div',
         null,
-        h('h1', { style: styles.title }, 'Plugin Hub'),
+        h('h1', { style: styles.title }, 'The Hub'),
         h(
           'p',
           { style: styles.subtitle },
           `Browse OpenEverest plugins and providers. ${counts.total} available · ${counts.installed} installed.`,
         ),
       ),
-      props.pluginName
-        ? h(
-            'span',
-            { style: { fontSize: '0.75rem', color: '#9ca3af' } },
-            `plugin: ${props.pluginName}`,
-          )
-        : null,
+      h(
+        'div',
+        { style: styles.headerActions },
+        h(
+          'a',
+          {
+            href: 'https://github.com/openeverest/hub',
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            style: styles.ctaBtn,
+          },
+          'Add extension',
+        ),
+        h(
+          'a',
+          {
+            href: 'https://github.com/openeverest/openeverest/issues/',
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            style: styles.ctaLink,
+          },
+          'Need other tech? →',
+        ),
+      ),
     ),
 
     error
