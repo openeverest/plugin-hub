@@ -687,6 +687,8 @@ type extensionSummary struct {
 	Provider         map[string]any `json:"provider,omitempty"`
 	Maturity         string         `json:"maturity,omitempty"`
 	Capabilities     map[string]any `json:"capabilities,omitempty"`
+	Access           string         `json:"access,omitempty"`
+	Gated            map[string]any `json:"gated,omitempty"`
 	Installed        bool           `json:"installed"`
 	InstalledVersion string         `json:"installedVersion,omitempty"`
 	InstalledPhase   string         `json:"installedPhase,omitempty"`

@@ -64,6 +64,8 @@ interface CatalogEntry {
   };
   maturity?: string;
   capabilities?: Record<string, unknown>;
+  access?: 'public' | 'gated';
+  gated?: { contactUrl?: string; instructions?: string; provider?: string };
   installed?: boolean;
   installedVersion?: string;
   installedPhase?: string;
@@ -80,6 +82,7 @@ interface FilterState {
   query: string;
   type: 'all' | 'plugin' | 'provider';
   installedOnly: boolean;
+  hideGated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +205,15 @@ const styles = {
       textTransform: 'capitalize' as const,
     };
   },
+  gatedChip: {
+    display: 'inline-block',
+    padding: '0.15rem 0.55rem',
+    background: '#ede9fe',
+    color: '#5b21b6',
+    borderRadius: 999,
+    fontSize: '0.75rem',
+    fontWeight: 600,
+  } as const,
   capChipYes: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -417,6 +429,7 @@ async function fetchSummary(): Promise<SummaryResponse> {
 function matchesFilter(entry: CatalogEntry, filter: FilterState): boolean {
   if (filter.type !== 'all' && entry.type !== filter.type) return false;
   if (filter.installedOnly && !entry.installed) return false;
+  if (filter.hideGated && entry.access === 'gated') return false;
   if (filter.query) {
     const q = filter.query.toLowerCase();
     const haystack = [
@@ -578,6 +591,17 @@ function Toolbar(props: {
       'Installed only',
     ),
     h(
+      'label',
+      { style: styles.checkboxRow },
+      h('input', {
+        type: 'checkbox',
+        checked: !filter.hideGated,
+        onChange: (e: any) =>
+          onChange({ ...filter, hideGated: !e.target.checked }),
+      }),
+      'Include gated',
+    ),
+    h(
       'button',
       {
         type: 'button',
@@ -667,6 +691,9 @@ function Row(props: {
           { style: styles.maturityChip(entry.maturity || 'unknown') },
           entry.maturity || 'unknown',
         ),
+        entry.access === 'gated'
+          ? h('span', { style: styles.gatedChip }, 'Gated')
+          : null,
         entry.installed
           ? h(
               'span',
@@ -700,8 +727,9 @@ function useAppBarOffset(): number {
 
 function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () => void }): any {
   const { entry, pluginName, onClose } = props;
-  const version = defaultChannelVersion(entry);
-  const install = helmInstallCommand(entry);
+  const isGated = entry.access === 'gated';
+  const version = isGated ? null : defaultChannelVersion(entry);
+  const install = isGated ? null : helmInstallCommand(entry);
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
@@ -738,6 +766,9 @@ function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () =>
             entry.name,
             ' · ',
             h('span', { style: styles.typeChip(entry.type) }, entry.type),
+            isGated
+              ? h('span', { style: { ...styles.gatedChip, marginLeft: 6 } }, 'Gated')
+              : null,
           ),
         ),
         h('button', { type: 'button', style: styles.closeBtn, onClick: onClose }, '×'),
@@ -853,8 +884,47 @@ function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () =>
       h(
         'div',
         { style: styles.section },
-        h('h3', { style: styles.sectionTitle }, 'Install with Helm'),
-        h('pre', { style: styles.codeBlock }, install),
+        isGated
+          ? h(
+              'div',
+              null,
+              h('h3', { style: styles.sectionTitle }, 'Access required'),
+              h(
+                'p',
+                { style: { color: '#374151', fontSize: '0.875rem', marginTop: 0 } },
+                entry.gated?.instructions ||
+                  'This extension is not publicly available. Contact the vendor to request access.',
+              ),
+              entry.gated?.provider
+                ? h(
+                    'p',
+                    { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: '-0.5rem' } },
+                    `Provided by ${entry.gated.provider}`,
+                  )
+                : null,
+              entry.gated?.contactUrl
+                ? h(
+                    'a',
+                    {
+                      href: entry.gated.contactUrl,
+                      target: '_blank',
+                      rel: 'noopener noreferrer',
+                      style: styles.ctaBtn,
+                    },
+                    'Contact vendor ↗',
+                  )
+                : h(
+                    'div',
+                    { style: { color: '#6b7280', fontSize: '0.8125rem' } },
+                    'No contact URL configured. See the source repository for details.',
+                  ),
+            )
+          : h(
+              'div',
+              null,
+              h('h3', { style: styles.sectionTitle }, 'Install with Helm'),
+              h('pre', { style: styles.codeBlock }, install),
+            ),
       ),
 
       h(
@@ -896,6 +966,7 @@ const HubPage = (props: PluginRouteProps): any => {
     query: '',
     type: 'all',
     installedOnly: false,
+    hideGated: false,
   });
   const [selected, setSelected] = React.useState<CatalogEntry | null>(null);
 
