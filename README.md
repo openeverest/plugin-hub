@@ -14,7 +14,7 @@ Built from the [`openeverest/generic-plugin-template`](https://github.com/openev
 
 ```bash
 helm install plugin-hub oci://ghcr.io/openeverest/charts/plugin-hub \
-  --version 0.1.12 \
+  --version 0.1.13 \
   -n everest-system
 ```
 
