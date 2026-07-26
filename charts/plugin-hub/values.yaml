@@ -29,9 +29,10 @@ plugin:
       icon: "/icon.png"
 
 # Optional override for the Everest API URL. When left empty the backend
-# auto-discovers the everest Service via Kubernetes-injected env vars
-# (EVEREST_SERVICE_HOST / EVEREST_SERVICE_PORT). Only set this for local dev
-# or non-standard deployments.
+# targets the stable in-cluster DNS name
+# (http://everest.everest-system.svc.cluster.local:8080), which always
+# resolves to the live ClusterIP. Only set this for local dev or when everest
+# runs under a non-standard name/namespace.
 everestAPIURL: ""
 
 # Override the catalog index URL. Defaults to the official OpenEverest hub.
