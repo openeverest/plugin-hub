@@ -45,7 +45,7 @@ Edit `charts/plugin-hub/values.yaml` (or pass `--set` flags):
 | `service.port` | Service port | `8080` |
 | `plugin.displayName` | Display name in the UI | `Plugin Hub` |
 | `plugin.enabled` | Enable/disable the plugin | `true` |
-| `everestAPIURL` | OpenEverest API server URL (in-cluster autodiscovered when empty) | `""` |
+| `everestAPIURL` | OpenEverest API server URL (defaults to in-cluster DNS `everest.everest-system.svc.cluster.local:8080` when empty) | `""` |
 | `hubIndexURL` | Override the catalog index URL | official hub when empty |
 | `cacheTTLSeconds` | Catalog cache TTL (seconds) | `300` when empty |
 

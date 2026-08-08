@@ -79,11 +79,15 @@ func everestAPIURL() string {
 	if v := os.Getenv("EVEREST_API_URL"); v != "" {
 		return strings.TrimRight(v, "/")
 	}
-	host := os.Getenv("EVEREST_SERVICE_HOST")
-	port := os.Getenv("EVEREST_SERVICE_PORT")
-	if host != "" && port != "" {
-		return fmt.Sprintf("http://%s:%s", host, port)
-	}
+	// NOTE: we deliberately do NOT consult the Kubernetes-injected
+	// EVEREST_SERVICE_HOST / EVEREST_SERVICE_PORT env vars. Those are a
+	// point-in-time snapshot of the everest Service's ClusterIP taken by
+	// kubelet when this pod started and are never refreshed. If the everest
+	// Service is deleted and recreated (e.g. during a redeploy) it gets a new
+	// ClusterIP, the snapshot goes stale, and every request dials a dead IP
+	// until this pod is restarted. The stable in-cluster DNS name always
+	// resolves to the live ClusterIP, so we rely on it (overridable via
+	// EVEREST_API_URL for non-standard deployments).
 	return defaultEverestService
 }
 
