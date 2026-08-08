@@ -2,956 +2,30 @@
 //
 // Registers a sidebar entry and a dedicated route that renders the Hub
 // browser — a searchable, filterable list of available and installed
-// extensions, pulled from the host's /v1/plugins/plugin-hub/api/summary
-// endpoint (which proxies to this plugin's Go backend).
+// extensions. The catalog is pulled from the plugin's Go backend
+// (/api/catalog) and install status is loaded separately (/api/installed) so
+// a slow or failing everest API never blocks the catalog from rendering.
 //
 // The runtime contract follows the openeverest/generic-plugin-template
 // pattern: React and the host-authenticated fetch are injected via the
-// `register(api)` call, so this module uses React.createElement directly and
-// does not import React or any UI framework. The bundle stays small and the
-// host stays in charge of dependency versions.
+// `register(api)` call (see runtime.ts), so this module uses
+// React.createElement (via `h`) directly and does not import React or any UI
+// framework. The bundle stays small and the host stays in charge of
+// dependency versions.
 import type {
   PluginRegisterFn,
   PluginApi,
   PluginRouteProps,
 } from '@openeverest/plugin-sdk';
 
-let React: PluginApi['React'];
-let pluginFetch: PluginApi['fetch'];
-
-const h = (
-  type: any,
-  props: any,
-  ...children: any[]
-): any => React.createElement(type, props, ...children);
-
-// ---------------------------------------------------------------------------
-// Types matching the backend /api/summary shape.
-// ---------------------------------------------------------------------------
-
-type ExtensionType = 'plugin' | 'provider' | string;
-
-interface CatalogEntry {
-  name: string;
-  type: ExtensionType;
-  displayName?: string;
-  description?: string;
-  icon?: string;
-  homepage?: string;
-  sourceRepo?: string;
-  license?: string;
-  verified?: boolean;
-  categories?: string[];
-  keywords?: string[];
-  maintainers?: Array<{ name?: string; email?: string; github?: string }>;
-  compatibility?: { openeverest?: string };
-  artifacts?: {
-    chart?: {
-      defaultChannel?: string;
-      channels?: Record<string, { ref?: string; version?: string }>;
-    };
-  };
-  install?: {
-    helm?: { namespace?: string; releaseName?: string };
-  };
-  plugin?: {
-    contributes?: { backend?: boolean; ui?: boolean; cli?: boolean };
-    extensionPoints?: string[];
-  };
-  provider?: {
-    providerName?: string;
-    supportedEngines?: string[];
-  };
-  maturity?: string;
-  capabilities?: Record<string, unknown>;
-  access?: 'public' | 'gated';
-  gated?: { contactUrl?: string; instructions?: string; provider?: string };
-  installed?: boolean;
-  installedVersion?: string;
-  installedPhase?: string;
-}
-
-interface SummaryResponse {
-  extensions?: CatalogEntry[];
-  metadata?: { catalogId?: string; generatedAt?: string; totalExtensions?: number };
-  stale?: boolean;
-  installedError?: string;
-}
-
-interface FilterState {
-  query: string;
-  type: 'all' | 'plugin' | 'provider';
-  installedOnly: boolean;
-  hideGated: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Styling — inline objects, host theme inherited.
-// ---------------------------------------------------------------------------
-
-const styles = {
-  page: { padding: '1.5rem', maxWidth: 1280, margin: '0 auto' } as const,
-  headerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '1rem',
-    marginBottom: '1rem',
-    flexWrap: 'wrap' as const,
-  },
-  title: { margin: 0, fontSize: '1.5rem', fontWeight: 600 },
-  subtitle: { margin: 0, color: '#6b7280', fontSize: '0.875rem' },
-  toolbar: {
-    display: 'flex',
-    gap: '0.75rem',
-    alignItems: 'center',
-    flexWrap: 'wrap' as const,
-    padding: '0.75rem 1rem',
-    background: '#f9fafb',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    marginBottom: '1rem',
-  },
-  input: {
-    flex: '1 1 240px',
-    minWidth: 200,
-    padding: '0.5rem 0.75rem',
-    fontSize: '0.875rem',
-    border: '1px solid #d1d5db',
-    borderRadius: 6,
-    background: '#fff',
-  } as const,
-  chipGroup: { display: 'flex', gap: '0.25rem' } as const,
-  chip: (active: boolean) => ({
-    padding: '0.4rem 0.75rem',
-    fontSize: '0.8125rem',
-    border: '1px solid ' + (active ? '#1f2937' : '#d1d5db'),
-    background: active ? '#1f2937' : '#fff',
-    color: active ? '#fff' : '#374151',
-    borderRadius: 999,
-    cursor: 'pointer',
-  }),
-  checkboxRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    fontSize: '0.875rem',
-    color: '#374151',
-    cursor: 'pointer',
-  } as const,
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    background: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  th: {
-    textAlign: 'left' as const,
-    padding: '0.75rem 1rem',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    color: '#6b7280',
-    background: '#f9fafb',
-    borderBottom: '1px solid #e5e7eb',
-  },
-  td: {
-    padding: '0.75rem 1rem',
-    fontSize: '0.875rem',
-    borderBottom: '1px solid #f3f4f6',
-    verticalAlign: 'top' as const,
-  } as const,
-  iconCell: { width: 40, padding: '0.75rem', textAlign: 'center' as const },
-  iconImg: { width: 28, height: 28, objectFit: 'contain' as const },
-  statusInstalled: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  statusAvailable: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#e5e7eb',
-    color: '#374151',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  maturityChip: (maturity: string) => {
-    const m = (maturity || 'unknown').toLowerCase();
-    const palette: Record<string, { bg: string; fg: string }> = {
-      alpha: { bg: '#ffedd5', fg: '#9a3412' },
-      beta: { bg: '#dbeafe', fg: '#1e3a8a' },
-      stable: { bg: '#dcfce7', fg: '#166534' },
-      ga: { bg: '#dcfce7', fg: '#166534' },
-      deprecated: { bg: '#fee2e2', fg: '#991b1b' },
-      unknown: { bg: '#e5e7eb', fg: '#374151' },
-    };
-    const c = palette[m] ?? palette.unknown;
-    return {
-      display: 'inline-block',
-      padding: '0.15rem 0.55rem',
-      background: c.bg,
-      color: c.fg,
-      borderRadius: 999,
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      textTransform: 'capitalize' as const,
-    };
-  },
-  gatedChip: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#ede9fe',
-    color: '#5b21b6',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  capChipYes: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0.15rem 0.55rem',
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    marginRight: 6,
-    marginBottom: 6,
-  } as const,
-  capChipNo: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0.15rem 0.55rem',
-    background: '#f3f4f6',
-    color: '#9ca3af',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    marginRight: 6,
-    marginBottom: 6,
-    textDecoration: 'line-through' as const,
-  } as const,
-  capRow: {
-    display: 'flex',
-    gap: '0.5rem',
-    alignItems: 'baseline',
-    marginBottom: 4,
-    flexWrap: 'wrap' as const,
-    fontSize: '0.875rem',
-  } as const,
-  capKey: { color: '#6b7280', fontWeight: 500, minWidth: 120 } as const,
-  typeChip: (type: string) => ({
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: type === 'provider' ? '#dbeafe' : '#ede9fe',
-    color: type === 'provider' ? '#1e3a8a' : '#5b21b6',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    textTransform: 'capitalize' as const,
-  }),
-  categoryTag: {
-    display: 'inline-block',
-    padding: '0.1rem 0.5rem',
-    fontSize: '0.7rem',
-    background: '#f3f4f6',
-    color: '#4b5563',
-    borderRadius: 4,
-    marginRight: 4,
-  } as const,
-  refreshBtn: {
-    padding: '0.4rem 0.9rem',
-    fontSize: '0.8125rem',
-    border: '1px solid #d1d5db',
-    background: '#fff',
-    color: '#374151',
-    borderRadius: 6,
-    cursor: 'pointer',
-  } as const,
-  ctaBtn: {
-    padding: '0.5rem 1rem',
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    border: '1px solid #2563eb',
-    background: '#2563eb',
-    color: '#fff',
-    borderRadius: 6,
-    cursor: 'pointer',
-    textDecoration: 'none',
-    display: 'inline-block',
-  } as const,
-  ctaLink: {
-    fontSize: '0.8125rem',
-    color: '#6b7280',
-    textDecoration: 'none',
-  } as const,
-  headerActions: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'flex-end',
-    gap: '0.375rem',
-  } as const,
-  empty: {
-    padding: '3rem',
-    textAlign: 'center' as const,
-    color: '#6b7280',
-  },
-  errorBox: {
-    padding: '0.75rem 1rem',
-    background: '#fee2e2',
-    color: '#991b1b',
-    border: '1px solid #fecaca',
-    borderRadius: 6,
-    marginBottom: '1rem',
-    fontSize: '0.875rem',
-  },
-  warnBox: {
-    padding: '0.6rem 1rem',
-    background: '#fef3c7',
-    color: '#92400e',
-    border: '1px solid #fde68a',
-    borderRadius: 6,
-    marginBottom: '1rem',
-    fontSize: '0.8125rem',
-  },
-  drawerBackdrop: {
-    position: 'fixed' as const,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    background: 'rgba(15, 23, 42, 0.4)',
-    // Sit above MUI's permanent drawer (1200) but below the host's AppBar
-    // (1100 by default, but some themes push it higher) — the `top` offset
-    // is computed at render time so the AppBar always stays visible.
-    zIndex: 1200,
-    display: 'flex',
-    justifyContent: 'flex-end',
-  },
-  drawer: {
-    width: 'min(560px, 100%)',
-    height: '100%',
-    background: '#fff',
-    boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.15)',
-    overflowY: 'auto' as const,
-    padding: '1.5rem',
-    boxSizing: 'border-box' as const,
-  },
-  drawerHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-    marginBottom: '1rem',
-  },
-  closeBtn: {
-    marginLeft: 'auto',
-    border: 'none',
-    background: 'transparent',
-    fontSize: '1.5rem',
-    cursor: 'pointer',
-    color: '#6b7280',
-  } as const,
-  section: { marginTop: '1.25rem' } as const,
-  sectionTitle: {
-    margin: '0 0 0.5rem',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    color: '#6b7280',
-    letterSpacing: '0.05em',
-  },
-  codeBlock: {
-    background: '#0f172a',
-    color: '#e2e8f0',
-    padding: '0.75rem 1rem',
-    borderRadius: 6,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    fontSize: '0.8125rem',
-    whiteSpace: 'pre' as const,
-    overflowX: 'auto' as const,
-  },
-};
-
-const ICON_FALLBACK_DATA_URI =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='3'/><path d='M3 9h18M9 3v18'/></svg>",
-  );
-
-// Module-scoped record of icon URLs that already 404'd or otherwise failed.
-// Survives React re-renders so the same broken URL is never re-requested.
-const failedIconSrcs = new Set<string>();
-
-// resolveIconSrc converts whatever the backend put into entry.icon into a
-// usable <img src>. The backend now emits *relative* paths (e.g.
-// 'api/icon/<key>') for proxied icons; we prepend the plugin's runtime
-// mount prefix here so the URL is correct regardless of the release name
-// the chart was installed under.
-function resolveIconSrc(rawIcon: string | undefined, pluginName: string): string {
-  if (!rawIcon) return ICON_FALLBACK_DATA_URI;
-  if (
-    rawIcon.startsWith('data:') ||
-    rawIcon.startsWith('http://') ||
-    rawIcon.startsWith('https://') ||
-    rawIcon.startsWith('/')
-  ) {
-    return rawIcon;
-  }
-  if (!pluginName) return ICON_FALLBACK_DATA_URI;
-  return `/v1/plugins/${pluginName}/${rawIcon}`;
-}
-
-// ---------------------------------------------------------------------------
-// Data loading
-// ---------------------------------------------------------------------------
-
-async function fetchSummary(): Promise<SummaryResponse> {
-  const res = await pluginFetch('/api/summary');
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-// ---------------------------------------------------------------------------
-// Catalog table
-// ---------------------------------------------------------------------------
-
-function matchesFilter(entry: CatalogEntry, filter: FilterState): boolean {
-  if (filter.type !== 'all' && entry.type !== filter.type) return false;
-  if (filter.installedOnly && !entry.installed) return false;
-  if (filter.hideGated && entry.access === 'gated') return false;
-  if (filter.query) {
-    const q = filter.query.toLowerCase();
-    const haystack = [
-      entry.name,
-      entry.displayName ?? '',
-      entry.description ?? '',
-      (entry.categories ?? []).join(' '),
-      (entry.keywords ?? []).join(' '),
-    ]
-      .join(' ')
-      .toLowerCase();
-    if (!haystack.includes(q)) return false;
-  }
-  return true;
-}
-
-function defaultChannelVersion(entry: CatalogEntry): string | null {
-  const chart = entry.artifacts?.chart;
-  if (!chart) return null;
-  const channel = chart.defaultChannel ?? Object.keys(chart.channels ?? {})[0];
-  if (!channel) return null;
-  return chart.channels?.[channel]?.version ?? null;
-}
-
-function helmInstallCommand(entry: CatalogEntry): string {
-  const chart = entry.artifacts?.chart;
-  const channel = chart?.defaultChannel ?? Object.keys(chart?.channels ?? {})[0] ?? '';
-  const ref = chart?.channels?.[channel]?.ref ?? '<chart-ref>';
-  const version = chart?.channels?.[channel]?.version ?? '<version>';
-  const release = entry.install?.helm?.releaseName ?? entry.name;
-  const namespace = entry.install?.helm?.namespace ?? 'everest-system';
-  return [
-    `helm install ${release} ${ref} \\`,
-    `  --version ${version} \\`,
-    `  -n ${namespace}`,
-  ].join('\n');
-}
-
-function humanizeKey(key: string): string {
-  return key
-    .replace(/[._-]/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function renderCapabilityValue(key: string, value: unknown): any {
-  const label = humanizeKey(key);
-  if (typeof value === 'boolean') {
-    return value
-      ? h('span', { key, style: styles.capChipYes }, `\u2713 ${label}`)
-      : h('span', { key, style: styles.capChipNo }, `\u2717 ${label}`);
-  }
-  if (Array.isArray(value)) {
-    return h(
-      'div',
-      { key, style: styles.capRow },
-      h('span', { style: styles.capKey }, label),
-      h(
-        'div',
-        null,
-        ...value.map((v, i) =>
-          h('span', { key: i, style: styles.categoryTag }, String(v)),
-        ),
-      ),
-    );
-  }
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'object') {
-    return h(
-      'div',
-      { key, style: styles.capRow },
-      h('span', { style: styles.capKey }, label),
-      h(
-        'code',
-        { style: { fontSize: '0.8125rem', color: '#374151' } },
-        JSON.stringify(value),
-      ),
-    );
-  }
-  return h(
-    'div',
-    { key, style: styles.capRow },
-    h('span', { style: styles.capKey }, label),
-    h('span', { style: { color: '#111827' } }, String(value)),
-  );
-}
-
-function renderCapabilities(caps: Record<string, unknown>): any {
-  const entries = Object.entries(caps);
-  if (!entries.length) return null;
-  const booleans = entries.filter(([, v]) => typeof v === 'boolean');
-  const others = entries.filter(([, v]) => typeof v !== 'boolean');
-  return h(
-    'div',
-    null,
-    booleans.length
-      ? h(
-          'div',
-          { style: { marginBottom: others.length ? '0.75rem' : 0 } },
-          ...booleans.map(([k, v]) => renderCapabilityValue(k, v)),
-        )
-      : null,
-    others.length ? h('div', null, ...others.map(([k, v]) => renderCapabilityValue(k, v))) : null,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Components
-// ---------------------------------------------------------------------------
-
-function Toolbar(props: {
-  filter: FilterState;
-  onChange: (f: FilterState) => void;
-  onRefresh: () => void;
-  refreshing: boolean;
-  lastRefreshed: Date | null;
-}): any {
-  const { filter, onChange, onRefresh, refreshing, lastRefreshed } = props;
-  const chipDefs: Array<{ key: FilterState['type']; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'plugin', label: 'Plugins' },
-    { key: 'provider', label: 'Providers' },
-  ];
-  return h(
-    'div',
-    { style: styles.toolbar },
-    h('input', {
-      type: 'search',
-      placeholder: 'Search by name, description, category…',
-      value: filter.query,
-      style: styles.input,
-      onChange: (e: any) => onChange({ ...filter, query: e.target.value }),
-    }),
-    h(
-      'div',
-      { style: styles.chipGroup },
-      ...chipDefs.map((c) =>
-        h(
-          'button',
-          {
-            key: c.key,
-            type: 'button',
-            style: styles.chip(filter.type === c.key),
-            onClick: () => onChange({ ...filter, type: c.key }),
-          },
-          c.label,
-        ),
-      ),
-    ),
-    h(
-      'label',
-      { style: styles.checkboxRow },
-      h('input', {
-        type: 'checkbox',
-        checked: filter.installedOnly,
-        onChange: (e: any) =>
-          onChange({ ...filter, installedOnly: e.target.checked }),
-      }),
-      'Installed only',
-    ),
-    h(
-      'label',
-      { style: styles.checkboxRow },
-      h('input', {
-        type: 'checkbox',
-        checked: !filter.hideGated,
-        onChange: (e: any) =>
-          onChange({ ...filter, hideGated: !e.target.checked }),
-      }),
-      'Include gated',
-    ),
-    h(
-      'button',
-      {
-        type: 'button',
-        style: styles.refreshBtn,
-        onClick: onRefresh,
-        disabled: refreshing,
-      },
-      refreshing ? 'Refreshing…' : 'Refresh',
-    ),
-    lastRefreshed
-      ? h(
-          'span',
-          { style: { fontSize: '0.75rem', color: '#6b7280' } },
-          `Updated ${lastRefreshed.toLocaleTimeString()}`,
-        )
-      : null,
-  );
-}
-
-function IconImg(props: { src: string; alt?: string; style?: any }): any {
-  const initial = failedIconSrcs.has(props.src) ? ICON_FALLBACK_DATA_URI : props.src;
-  return h('img', {
-    src: initial,
-    alt: props.alt ?? '',
-    style: props.style,
-    onError: (e: any) => {
-      const el = e.currentTarget as HTMLImageElement & { dataset: DOMStringMap };
-      if (el.dataset.failed === '1') return;
-      el.dataset.failed = '1';
-      failedIconSrcs.add(props.src);
-      if (el.src !== ICON_FALLBACK_DATA_URI) {
-        el.src = ICON_FALLBACK_DATA_URI;
-      }
-    },
-  });
-}
-
-function Row(props: {
-  entry: CatalogEntry;
-  pluginName: string;
-  onSelect: (e: CatalogEntry) => void;
-}): any {
-  const { entry, pluginName, onSelect } = props;
-  const version = defaultChannelVersion(entry);
-  return h(
-    'tr',
-    {
-      key: entry.name,
-      style: { cursor: 'pointer' },
-      onClick: () => onSelect(entry),
-    },
-    h(
-      'td',
-      { style: { ...styles.td, ...styles.iconCell } },
-      h(IconImg, {
-        src: resolveIconSrc(entry.icon, pluginName),
-        style: styles.iconImg,
-      }),
-    ),
-    h(
-      'td',
-      { style: styles.td },
-      h('div', { style: { fontWeight: 600 } }, entry.displayName || entry.name),
-      h(
-        'div',
-        { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: 2 } },
-        entry.name,
-      ),
-    ),
-    h('td', { style: styles.td }, h('span', { style: styles.typeChip(entry.type) }, entry.type)),
-    h('td', { style: styles.td }, version ?? '—'),
-    h(
-      'td',
-      { style: styles.td },
-      ...(entry.categories ?? []).map((c) =>
-        h('span', { key: c, style: styles.categoryTag }, c),
-      ),
-    ),
-    h(
-      'td',
-      { style: styles.td },
-      h(
-        'div',
-        { style: { display: 'flex', flexDirection: 'column' as const, gap: 4, alignItems: 'flex-start' } },
-        h(
-          'span',
-          { style: styles.maturityChip(entry.maturity || 'unknown') },
-          entry.maturity || 'unknown',
-        ),
-        entry.access === 'gated'
-          ? h('span', { style: styles.gatedChip }, 'Gated')
-          : null,
-        entry.installed
-          ? h(
-              'span',
-              { style: styles.statusInstalled },
-              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
-            )
-          : null,
-      ),
-    ),
-  );
-}
-
-function measureAppBar(): number {
-  if (typeof document === 'undefined') return 64;
-  const ab = document.querySelector('header.MuiAppBar-root') as HTMLElement | null;
-  if (!ab) return 64;
-  const height = Math.round(ab.getBoundingClientRect().height);
-  return height > 0 ? height : 64;
-}
-
-function useAppBarOffset(): number {
-  const [offset, setOffset] = React.useState<number>(measureAppBar);
-  React.useEffect(() => {
-    const update = () => setOffset(measureAppBar());
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return offset;
-}
-
-function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () => void }): any {
-  const { entry, pluginName, onClose } = props;
-  const isGated = entry.access === 'gated';
-  const version = isGated ? null : defaultChannelVersion(entry);
-  const install = isGated ? null : helmInstallCommand(entry);
-  const extensionPoints = entry.plugin?.extensionPoints ?? [];
-  const supportedEngines = entry.provider?.supportedEngines ?? [];
-  const maintainers = entry.maintainers ?? [];
-  const appbarOffset = useAppBarOffset();
-  const backdropStyle = { ...styles.drawerBackdrop, top: appbarOffset };
-
-  return h(
-    'div',
-    { style: backdropStyle, onClick: onClose },
-    h(
-      'div',
-      {
-        style: styles.drawer,
-        onClick: (e: any) => e.stopPropagation(),
-      },
-      h(
-        'div',
-        { style: styles.drawerHeader },
-        h(IconImg, {
-          src: resolveIconSrc(entry.icon, pluginName),
-          style: { width: 40, height: 40 },
-        }),
-        h(
-          'div',
-          null,
-          h(
-            'h2',
-            { style: { margin: 0, fontSize: '1.25rem', fontWeight: 600 } },
-            entry.displayName || entry.name,
-          ),
-          h(
-            'div',
-            { style: { color: '#6b7280', fontSize: '0.8125rem' } },
-            entry.name,
-            ' · ',
-            h('span', { style: styles.typeChip(entry.type) }, entry.type),
-            isGated
-              ? h('span', { style: { ...styles.gatedChip, marginLeft: 6 } }, 'Gated')
-              : null,
-          ),
-        ),
-        h('button', { type: 'button', style: styles.closeBtn, onClick: onClose }, '×'),
-      ),
-
-      entry.installed
-        ? h(
-            'div',
-            { style: { marginBottom: '1rem' } },
-            h(
-              'span',
-              { style: styles.statusInstalled },
-              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
-            ),
-            entry.installedPhase
-              ? h(
-                  'span',
-                  { style: { marginLeft: 8, color: '#6b7280', fontSize: '0.8125rem' } },
-                  `Phase: ${entry.installedPhase}`,
-                )
-              : null,
-          )
-        : null,
-
-      entry.description
-        ? h(
-            'p',
-            { style: { color: '#374151', whiteSpace: 'pre-line' } },
-            entry.description,
-          )
-        : null,
-
-      h(
-        'div',
-        { style: styles.section },
-        h('h3', { style: styles.sectionTitle }, 'Metadata'),
-        h(
-          'div',
-          { style: { fontSize: '0.875rem', lineHeight: 1.7 } },
-          version ? h('div', null, h('b', null, 'Version: '), version) : null,
-          entry.maturity
-            ? h(
-                'div',
-                null,
-                h('b', null, 'Maturity: '),
-                h(
-                  'span',
-                  { style: styles.maturityChip(entry.maturity) },
-                  entry.maturity,
-                ),
-              )
-            : null,
-          entry.compatibility?.openeverest
-            ? h('div', null, h('b', null, 'Requires OpenEverest: '), entry.compatibility.openeverest)
-            : null,
-          entry.license ? h('div', null, h('b', null, 'License: '), entry.license) : null,
-          entry.verified
-            ? h('div', null, h('b', null, 'Verified: '), 'yes')
-            : null,
-        ),
-      ),
-
-      extensionPoints.length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Extension points'),
-            h(
-              'div',
-              null,
-              ...extensionPoints.map((p) => h('span', { key: p, style: styles.categoryTag }, p)),
-            ),
-          )
-        : null,
-
-      supportedEngines.length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Supported engines'),
-            h(
-              'div',
-              null,
-              ...supportedEngines.map((e) => h('span', { key: e, style: styles.categoryTag }, e)),
-            ),
-          )
-        : null,
-
-      entry.capabilities && Object.keys(entry.capabilities).length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Capabilities'),
-            renderCapabilities(entry.capabilities),
-          )
-        : null,
-
-      maintainers.length
-        ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Maintainers'),
-            h(
-              'ul',
-              { style: { margin: 0, paddingLeft: '1.25rem', fontSize: '0.875rem' } },
-              ...maintainers.map((m, i) =>
-                h('li', { key: i }, m.name || m.github || m.email || 'unknown'),
-              ),
-            ),
-          )
-        : null,
-
-      h(
-        'div',
-        { style: styles.section },
-        isGated
-          ? h(
-              'div',
-              null,
-              h('h3', { style: styles.sectionTitle }, 'Access required'),
-              h(
-                'p',
-                { style: { color: '#374151', fontSize: '0.875rem', marginTop: 0 } },
-                entry.gated?.instructions ||
-                  'This extension is not publicly available. Contact the vendor to request access.',
-              ),
-              entry.gated?.provider
-                ? h(
-                    'p',
-                    { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: '-0.5rem' } },
-                    `Provided by ${entry.gated.provider}`,
-                  )
-                : null,
-              entry.gated?.contactUrl
-                ? h(
-                    'a',
-                    {
-                      href: entry.gated.contactUrl,
-                      target: '_blank',
-                      rel: 'noopener noreferrer',
-                      style: styles.ctaBtn,
-                    },
-                    'Contact vendor ↗',
-                  )
-                : h(
-                    'div',
-                    { style: { color: '#6b7280', fontSize: '0.8125rem' } },
-                    'No contact URL configured. See the source repository for details.',
-                  ),
-            )
-          : h(
-              'div',
-              null,
-              h('h3', { style: styles.sectionTitle }, 'Install with Helm'),
-              h('pre', { style: styles.codeBlock }, install),
-            ),
-      ),
-
-      h(
-        'div',
-        { style: styles.section },
-        h(
-          'div',
-          { style: { display: 'flex', gap: '0.75rem', flexWrap: 'wrap' } },
-          entry.sourceRepo
-            ? h(
-                'a',
-                { href: entry.sourceRepo, target: '_blank', rel: 'noopener noreferrer' },
-                'Source repository ↗',
-              )
-            : null,
-          entry.homepage
-            ? h(
-                'a',
-                { href: entry.homepage, target: '_blank', rel: 'noopener noreferrer' },
-                'Homepage ↗',
-              )
-            : null,
-        ),
-      ),
-    ),
-  );
-}
+import { React, h, initRuntime } from './runtime';
+import { styles } from './styles';
+import { fetchCatalog, fetchInstalled, installedKey } from './data';
+import { matchesFilter } from './catalog';
+import { Toolbar } from './components/Toolbar';
+import { Row } from './components/Row';
+import { Drawer } from './components/Drawer';
+import type { CatalogEntry, FilterState, SummaryResponse } from './types';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -959,6 +33,8 @@ function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () =>
 
 const HubPage = (props: PluginRouteProps): any => {
   const [data, setData] = React.useState<SummaryResponse | null>(null);
+  const [installedKeys, setInstalledKeys] = React.useState<Set<string> | null>(null);
+  const [installedError, setInstalledError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [lastRefreshed, setLastRefreshed] = React.useState<Date | null>(null);
@@ -973,20 +49,47 @@ const HubPage = (props: PluginRouteProps): any => {
   const load = React.useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchSummary()
+    // Catalog is the fast, cached call — it gates the initial paint.
+    fetchCatalog()
       .then((res) => {
         setData(res);
         setLastRefreshed(new Date());
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
+
+    // Install status is loaded independently so a slow or failing everest API
+    // never blocks the catalog. Labels fill in once this resolves.
+    setInstalledKeys(null);
+    setInstalledError(null);
+    fetchInstalled()
+      .then((res) => {
+        const keys = new Set<string>();
+        for (const item of res.items ?? []) {
+          if (item?.name) keys.add(installedKey(item.type, item.name));
+        }
+        setInstalledKeys(keys);
+        if (res.error) setInstalledError(res.error);
+      })
+      .catch((err: Error) => {
+        setInstalledKeys(new Set());
+        setInstalledError(err.message);
+      });
   }, []);
 
   React.useEffect(() => {
     load();
   }, [load]);
 
-  const entries = data?.extensions ?? [];
+  const installedLoading = installedKeys === null;
+  const entries = React.useMemo(() => {
+    const raw = data?.extensions ?? [];
+    if (!installedKeys) return raw;
+    return raw.map((e) => ({
+      ...e,
+      installed: installedKeys.has(installedKey(e.type, e.name)),
+    }));
+  }, [data, installedKeys]);
   const filtered = entries.filter((e) => matchesFilter(e, filter));
   const counts = {
     total: entries.length,
@@ -1008,7 +111,9 @@ const HubPage = (props: PluginRouteProps): any => {
         h(
           'p',
           { style: styles.subtitle },
-          `Browse OpenEverest plugins and providers. ${counts.total} available · ${counts.installed} installed.`,
+          `Browse OpenEverest plugins and providers. ${counts.total} available · ${
+            installedLoading ? 'checking installed…' : `${counts.installed} installed`
+          }.`,
         ),
       ),
       h(
@@ -1047,11 +152,11 @@ const HubPage = (props: PluginRouteProps): any => {
           'Showing cached catalog — upstream hub index is currently unreachable.',
         )
       : null,
-    data?.installedError
+    installedError
       ? h(
           'div',
           { style: styles.warnBox },
-          `Could not load installed extensions: ${data.installedError}. Showing catalog without install status.`,
+          `Could not load installed extensions: ${installedError}. Showing catalog without install status.`,
         )
       : null,
 
@@ -1102,8 +207,7 @@ const HubPage = (props: PluginRouteProps): any => {
 // ---------------------------------------------------------------------------
 
 const register: PluginRegisterFn = (api: PluginApi) => {
-  React = api.React;
-  pluginFetch = api.fetch.bind(api);
+  initRuntime(api);
 
   api.registerExtension({
     type: 'sidebarItem',
