@@ -3,10 +3,12 @@
 // Surfaces three categories of HTTP routes:
 //
 //  1. Bundle + icon + health   — served straight from embedded files.
-//  2. Catalog                  — fetches the upstream hub index, caches it in
+//  2. Catalog                  — fetches the hub index (from GitHub, or from
+//                                a locally mounted file for air-gapped
+//                                clusters — see HUB_INDEX_PATH), caches it in
 //                                memory, and returns the parsed JSON. Falls
-//                                back to the last successful response when the
-//                                upstream is unreachable.
+//                                back to the last successful response when
+//                                the source is unreachable.
 //  3. Installed extensions     — proxied call to the OpenEverest API server,
 //                                forwarding the caller's X-Everest-User JWT.
 //  4. Summary                  — server-side join of catalog + installed,
@@ -66,6 +68,15 @@ func hubIndexURL() string {
 	return defaultHubIndexURL
 }
 
+// hubIndexPath, when set, points at a local file holding the catalog index —
+// typically a ConfigMap mounted into the pod (see the chart's localIndex
+// values). It takes precedence over hubIndexURL: an air-gapped cluster can
+// point this at the mounted file and the backend never has to reach GitHub
+// for the catalog. Empty (the default) keeps the existing network fetch.
+func hubIndexPath() string {
+	return os.Getenv("HUB_INDEX_PATH")
+}
+
 func cacheTTL() time.Duration {
 	if v := os.Getenv("CACHE_TTL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -112,21 +123,23 @@ func clusterName() string {
 // ---------------------------------------------------------------------------
 
 type catalogCache struct {
-	mu          sync.RWMutex
-	ttl         time.Duration
-	url         string
-	client      *http.Client
-	body        []byte // last successful raw JSON body
-	fetchedAt   time.Time
-	lastErr     error
-	lastErrAt   time.Time
+	mu        sync.RWMutex
+	ttl       time.Duration
+	fetch     func() ([]byte, error) // source-specific: HTTP GET or local file read
+	body      []byte                 // last successful raw JSON body
+	fetchedAt time.Time
+	lastErr   error
+	lastErrAt time.Time
 }
 
-func newCatalogCache(url string, ttl time.Duration) *catalogCache {
+// newCatalogCache wraps fetch — fetchRemoteIndex for the default GitHub-hosted
+// hub, or fetchLocalIndex for the air-gapped path — with TTL caching and
+// stale-on-error fallback. The cache itself doesn't know or care which source
+// it's given; main picks one, once, at startup, based on hubIndexPath.
+func newCatalogCache(ttl time.Duration, fetch func() ([]byte, error)) *catalogCache {
 	return &catalogCache{
-		ttl:    ttl,
-		url:    url,
-		client: &http.Client{Timeout: upstreamFetchTimeout},
+		ttl:   ttl,
+		fetch: fetch,
 	}
 }
 
@@ -149,7 +162,7 @@ func (c *catalogCache) get() (body []byte, stale bool, err error) {
 		return c.body, false, nil
 	}
 
-	fresh, fetchErr := c.fetchLocked()
+	fresh, fetchErr := c.fetch()
 	if fetchErr == nil {
 		c.body = fresh
 		c.fetchedAt = time.Now()
@@ -166,13 +179,15 @@ func (c *catalogCache) get() (body []byte, stale bool, err error) {
 	return nil, false, fetchErr
 }
 
-func (c *catalogCache) fetchLocked() ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, c.url, nil)
+// fetchRemoteIndex GETs the catalog index over HTTP — the GitHub-hosted hub
+// by default, or whatever HUB_INDEX_URL overrides it to.
+func fetchRemoteIndex(url string, client *http.Client) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +196,19 @@ func (c *catalogCache) fetchLocked() ([]byte, error) {
 		return nil, fmt.Errorf("hub index upstream returned status %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// fetchLocalIndex reads the catalog index off disk — the air-gapped path,
+// meant for a file mounted from a ConfigMap. A missing or not-yet-mounted
+// volume is a normal, expected failure mode here, so it's reported through
+// the same stale-on-error fallback get() already uses for a failed HTTP
+// fetch, not a startup crash.
+func fetchLocalIndex(path string) ([]byte, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read local hub index %q: %w", path, err)
+	}
+	return body, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -722,7 +750,7 @@ type summaryResponse struct {
 // ---------------------------------------------------------------------------
 
 func main() {
-	cache := newCatalogCache(hubIndexURL(), cacheTTL())
+	cache, hubSource := newCatalogCacheFromEnv()
 	icons := newIconProxy()
 
 	mux := http.NewServeMux()
@@ -736,8 +764,28 @@ func main() {
 
 	port := listenPort()
 	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s)",
-		port, hubIndexURL(), everestAPIURL(), cacheTTL())
+		port, hubSource, everestAPIURL(), cacheTTL())
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// newCatalogCacheFromEnv picks the catalog source — local file if
+// HUB_INDEX_PATH is set, otherwise the GitHub-hosted hub — and returns a
+// ready-to-use cache plus a human-readable description of the source for the
+// startup log.
+func newCatalogCacheFromEnv() (*catalogCache, string) {
+	if path := hubIndexPath(); path != "" {
+		cache := newCatalogCache(cacheTTL(), func() ([]byte, error) {
+			return fetchLocalIndex(path)
+		})
+		return cache, "file://" + path + " (air-gapped)"
+	}
+
+	url := hubIndexURL()
+	client := &http.Client{Timeout: upstreamFetchTimeout}
+	cache := newCatalogCache(cacheTTL(), func() ([]byte, error) {
+		return fetchRemoteIndex(url, client)
+	})
+	return cache, url
 }
