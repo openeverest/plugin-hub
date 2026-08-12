@@ -5,7 +5,8 @@ The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It
 - **Sidebar entry + dedicated route** registered as an OpenEverest generic plugin.
 - **Searchable, filterable table** of all catalog entries (plugins and providers) with install status, default-channel version, categories, and a per-entry detail drawer.
 - **Backend-side join**: a single `/api/summary` call merges the hub catalog with the live `InstalledExtension` list so the UI does one round-trip.
-- **Stale-tolerant**: the upstream catalog is cached in-memory; if GitHub becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
+- **Stale-tolerant**: the catalog is cached in-memory; if the source becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
+- **Air-gapped friendly**: point `localIndex.configMapName` (chart) or `HUB_INDEX_PATH` (backend) at a locally-provided `index.json` and the backend never has to reach GitHub for the catalog.
 - **Browse-only in v1.** Each catalog entry shows a copy-pasteable `helm install …` command. Install/uninstall actions from the UI will land in a later release.
 
 Built from the [`openeverest/generic-plugin-template`](https://github.com/openeverest/generic-plugin-template) and following the [Generic Plugins Architecture Design](https://github.com/openeverest/openeverest/blob/main/docs/process/generic-plugins-design.md).
@@ -47,7 +48,26 @@ Edit `charts/plugin-hub/values.yaml` (or pass `--set` flags):
 | `plugin.enabled` | Enable/disable the plugin | `true` |
 | `everestAPIURL` | OpenEverest API server URL (defaults to in-cluster DNS `everest.everest-system.svc.cluster.local:8080` when empty) | `""` |
 | `hubIndexURL` | Override the catalog index URL | official hub when empty |
+| `localIndex.configMapName` | Existing ConfigMap holding a local catalog index, for air-gapped clusters. Mounted at `/etc/plugin-hub-index` and takes precedence over `hubIndexURL` when set. | `""` |
+| `localIndex.key` | Key inside that ConfigMap holding the index JSON | `index.json` |
 | `cacheTTLSeconds` | Catalog cache TTL (seconds) | `300` when empty |
+
+## Air-gapped / offline catalog
+
+For clusters without outbound access to GitHub, provide the catalog index from a ConfigMap instead:
+
+```bash
+kubectl create configmap plugin-hub-index \
+  --from-file=index.json=./index.json \
+  -n everest-system
+
+helm upgrade --install plugin-hub oci://ghcr.io/openeverest/charts/plugin-hub \
+  --version 0.1.14 \
+  -n everest-system \
+  --set localIndex.configMapName=plugin-hub-index
+```
+
+The chart mounts the ConfigMap as a directory (not a `subPath` file), so the backend picks up updates on its normal cache TTL after `kubectl apply`-ing a new ConfigMap revision — no pod restart needed, the same way the GitHub-backed catalog already refreshes on TTL expiry.
 
 ## Local development
 
@@ -105,6 +125,9 @@ docker build -t plugin-hub:dev .
             │                  │       ▼           │
             │                  │   GitHub raw      │
             │                  │   hub/index.json  │
+            │                  │   — or a mounted  │
+            │                  │   ConfigMap file  │
+            │                  │   (air-gapped)    │
             │                  │                   │
             │                  └─► OpenEverest API │
             │                      /v1/installed-  │
