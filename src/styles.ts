@@ -85,6 +85,16 @@ export const styles = {
     fontSize: '0.75rem',
     fontWeight: 600,
   } as const,
+  statusOutdated: {
+    display: 'inline-block',
+    padding: '0.15rem 0.55rem',
+    background: '#fef3c7',
+    color: '#92400e',
+    border: '1px solid #fde68a',
+    borderRadius: 999,
+    fontSize: '0.75rem',
+    fontWeight: 600,
+  } as const,
   statusAvailable: {
     display: 'inline-block',
     padding: '0.15rem 0.55rem',

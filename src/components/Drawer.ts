@@ -1,6 +1,6 @@
 import { h, React } from '../runtime';
 import { styles } from '../styles';
-import { defaultChannelVersion, helmInstallCommand } from '../catalog';
+import { defaultChannelVersion, helmInstallCommand, helmUpgradeCommand, isVersionOutdated } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import type { CatalogEntry } from '../types';
 
@@ -63,10 +63,10 @@ function renderCapabilities(caps: Record<string, unknown>): any {
     null,
     booleans.length
       ? h(
-          'div',
-          { style: { marginBottom: others.length ? '0.75rem' : 0 } },
-          ...booleans.map(([k, v]) => renderCapabilityValue(k, v)),
-        )
+        'div',
+        { style: { marginBottom: others.length ? '0.75rem' : 0 } },
+        ...booleans.map(([k, v]) => renderCapabilityValue(k, v)),
+      )
       : null,
     others.length ? h('div', null, ...others.map(([k, v]) => renderCapabilityValue(k, v))) : null,
   );
@@ -96,6 +96,8 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
   const isGated = entry.access === 'gated';
   const version = isGated ? null : defaultChannelVersion(entry);
   const install = isGated ? null : helmInstallCommand(entry);
+  const isOutdated = entry.installed && isVersionOutdated(entry.installedVersion, version);
+  const upgradeCmd = isOutdated ? helmUpgradeCommand(entry) : null;
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
@@ -142,29 +144,29 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
 
       entry.installed
         ? h(
-            'div',
-            { style: { marginBottom: '1rem' } },
-            h(
+          'div',
+          { style: { marginBottom: '1rem' } },
+          h(
+            'span',
+            { style: styles.statusInstalled },
+            entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
+          ),
+          entry.installedPhase
+            ? h(
               'span',
-              { style: styles.statusInstalled },
-              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
-            ),
-            entry.installedPhase
-              ? h(
-                  'span',
-                  { style: { marginLeft: 8, color: '#6b7280', fontSize: '0.8125rem' } },
-                  `Phase: ${entry.installedPhase}`,
-                )
-              : null,
-          )
+              { style: { marginLeft: 8, color: '#6b7280', fontSize: '0.8125rem' } },
+              `Phase: ${entry.installedPhase}`,
+            )
+            : null,
+        )
         : null,
 
       entry.description
         ? h(
-            'p',
-            { style: { color: '#374151', whiteSpace: 'pre-line' } },
-            entry.description,
-          )
+          'p',
+          { style: { color: '#374151', whiteSpace: 'pre-line' } },
+          entry.description,
+        )
         : null,
 
       h(
@@ -177,15 +179,15 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
           version ? h('div', null, h('b', null, 'Version: '), version) : null,
           entry.maturity
             ? h(
-                'div',
-                null,
-                h('b', null, 'Maturity: '),
-                h(
-                  'span',
-                  { style: styles.maturityChip(entry.maturity) },
-                  entry.maturity,
-                ),
-              )
+              'div',
+              null,
+              h('b', null, 'Maturity: '),
+              h(
+                'span',
+                { style: styles.maturityChip(entry.maturity) },
+                entry.maturity,
+              ),
+            )
             : null,
           entry.compatibility?.openeverest
             ? h('div', null, h('b', null, 'Requires OpenEverest: '), entry.compatibility.openeverest)
@@ -199,52 +201,52 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
 
       extensionPoints.length
         ? h(
+          'div',
+          { style: styles.section },
+          h('h3', { style: styles.sectionTitle }, 'Extension points'),
+          h(
             'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Extension points'),
-            h(
-              'div',
-              null,
-              ...extensionPoints.map((p) => h('span', { key: p, style: styles.categoryTag }, p)),
-            ),
-          )
+            null,
+            ...extensionPoints.map((p) => h('span', { key: p, style: styles.categoryTag }, p)),
+          ),
+        )
         : null,
 
       supportedEngines.length
         ? h(
+          'div',
+          { style: styles.section },
+          h('h3', { style: styles.sectionTitle }, 'Supported engines'),
+          h(
             'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Supported engines'),
-            h(
-              'div',
-              null,
-              ...supportedEngines.map((e) => h('span', { key: e, style: styles.categoryTag }, e)),
-            ),
-          )
+            null,
+            ...supportedEngines.map((e) => h('span', { key: e, style: styles.categoryTag }, e)),
+          ),
+        )
         : null,
 
       entry.capabilities && Object.keys(entry.capabilities).length
         ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Capabilities'),
-            renderCapabilities(entry.capabilities),
-          )
+          'div',
+          { style: styles.section },
+          h('h3', { style: styles.sectionTitle }, 'Capabilities'),
+          renderCapabilities(entry.capabilities),
+        )
         : null,
 
       maintainers.length
         ? h(
-            'div',
-            { style: styles.section },
-            h('h3', { style: styles.sectionTitle }, 'Maintainers'),
-            h(
-              'ul',
-              { style: { margin: 0, paddingLeft: '1.25rem', fontSize: '0.875rem' } },
-              ...maintainers.map((m, i) =>
-                h('li', { key: i }, m.name || m.github || m.email || 'unknown'),
-              ),
+          'div',
+          { style: styles.section },
+          h('h3', { style: styles.sectionTitle }, 'Maintainers'),
+          h(
+            'ul',
+            { style: { margin: 0, paddingLeft: '1.25rem', fontSize: '0.875rem' } },
+            ...maintainers.map((m, i) =>
+              h('li', { key: i }, m.name || m.github || m.email || 'unknown'),
             ),
-          )
+          ),
+        )
         : null,
 
       h(
@@ -252,40 +254,52 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
         { style: styles.section },
         isGated
           ? h(
+            'div',
+            null,
+            h('h3', { style: styles.sectionTitle }, 'Access required'),
+            h(
+              'p',
+              { style: { color: '#374151', fontSize: '0.875rem', marginTop: 0 } },
+              entry.gated?.instructions ||
+              'This extension is not publicly available. Contact the vendor to request access.',
+            ),
+            entry.gated?.provider
+              ? h(
+                'p',
+                { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: '-0.5rem' } },
+                `Provided by ${entry.gated.provider}`,
+              )
+              : null,
+            entry.gated?.contactUrl
+              ? h(
+                'a',
+                {
+                  href: entry.gated.contactUrl,
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                  style: styles.ctaBtn,
+                },
+                'Contact vendor ↗',
+              )
+              : h(
+                'div',
+                { style: { color: '#6b7280', fontSize: '0.8125rem' } },
+                'No contact URL configured. See the source repository for details.',
+              ),
+          )
+          : isOutdated
+            ? h(
               'div',
               null,
-              h('h3', { style: styles.sectionTitle }, 'Access required'),
               h(
-                'p',
-                { style: { color: '#374151', fontSize: '0.875rem', marginTop: 0 } },
-                entry.gated?.instructions ||
-                  'This extension is not publicly available. Contact the vendor to request access.',
+                'div',
+                { style: styles.warnBox },
+                `A newer version (${version}) is available. Currently installed: ${entry.installedVersion}`,
               ),
-              entry.gated?.provider
-                ? h(
-                    'p',
-                    { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: '-0.5rem' } },
-                    `Provided by ${entry.gated.provider}`,
-                  )
-                : null,
-              entry.gated?.contactUrl
-                ? h(
-                    'a',
-                    {
-                      href: entry.gated.contactUrl,
-                      target: '_blank',
-                      rel: 'noopener noreferrer',
-                      style: styles.ctaBtn,
-                    },
-                    'Contact vendor ↗',
-                  )
-                : h(
-                    'div',
-                    { style: { color: '#6b7280', fontSize: '0.8125rem' } },
-                    'No contact URL configured. See the source repository for details.',
-                  ),
+              h('h3', { style: styles.sectionTitle }, 'Upgrade with Helm'),
+              h('pre', { style: styles.codeBlock }, upgradeCmd),
             )
-          : h(
+            : h(
               'div',
               null,
               h('h3', { style: styles.sectionTitle }, 'Install with Helm'),
@@ -301,17 +315,17 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
           { style: { display: 'flex', gap: '0.75rem', flexWrap: 'wrap' } },
           entry.sourceRepo
             ? h(
-                'a',
-                { href: entry.sourceRepo, target: '_blank', rel: 'noopener noreferrer' },
-                'Source repository ↗',
-              )
+              'a',
+              { href: entry.sourceRepo, target: '_blank', rel: 'noopener noreferrer' },
+              'Source repository ↗',
+            )
             : null,
           entry.homepage
             ? h(
-                'a',
-                { href: entry.homepage, target: '_blank', rel: 'noopener noreferrer' },
-                'Homepage ↗',
-              )
+              'a',
+              { href: entry.homepage, target: '_blank', rel: 'noopener noreferrer' },
+              'Homepage ↗',
+            )
             : null,
         ),
       ),

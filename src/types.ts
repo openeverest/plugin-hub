@@ -52,6 +52,7 @@ export interface SummaryResponse {
 export interface InstalledItem {
   name: string;
   type: ExtensionType;
+  version?: string;
 }
 
 export interface InstalledResponse {
