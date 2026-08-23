@@ -398,19 +398,45 @@ function u(e) {
 	].join("\n");
 }
 function d(e) {
-	return e.replace(/^v/i, "").split(/[-+]/)[0].split(".").map((e) => parseInt(e, 10) || 0);
+	let [t, ...n] = e.trim().replace(/^v/i, "").split("+")[0].split("-");
+	return {
+		numbers: t.split(".").map((e) => parseInt(e, 10) || 0),
+		prerelease: n.length > 0 ? n.join("-").split(".") : null
+	};
 }
 function f(e, t) {
-	if (!e || !t) return !1;
-	let n = d(e), r = d(t);
-	for (let e = 0; e < Math.max(n.length, r.length); e++) {
-		let t = n[e] || 0, i = r[e] || 0;
-		if (i > t) return !0;
-		if (i < t) return !1;
+	let n = d(e), r = d(t), i = Math.max(n.numbers.length, r.numbers.length);
+	for (let e = 0; e < i; e++) {
+		let t = n.numbers[e] || 0, i = r.numbers[e] || 0;
+		if (t < i) return -1;
+		if (t > i) return 1;
 	}
-	return !1;
+	if (!n.prerelease && r.prerelease) return 1;
+	if (n.prerelease && !r.prerelease) return -1;
+	if (!n.prerelease && !r.prerelease) return 0;
+	let a = n.prerelease, o = r.prerelease, s = Math.max(a.length, o.length);
+	for (let e = 0; e < s; e++) {
+		let t = a[e], n = o[e];
+		if (t === void 0) return -1;
+		if (n === void 0) return 1;
+		let r = /^\d+$/.test(t), i = /^\d+$/.test(n);
+		if (r && i) {
+			let e = parseInt(t, 10), r = parseInt(n, 10);
+			if (e < r) return -1;
+			if (e > r) return 1;
+		} else if (r && !i) return -1;
+		else if (!r && i) return 1;
+		else {
+			let e = t.localeCompare(n);
+			if (e !== 0) return e < 0 ? -1 : 1;
+		}
+	}
+	return 0;
 }
-function p(e) {
+function p(e, t) {
+	return !e || !t ? !1 : f(e, t) < 0;
+}
+function m(e) {
 	let t = e.artifacts?.chart, n = t?.defaultChannel ?? Object.keys(t?.channels ?? {})[0] ?? "", r = t?.channels?.[n]?.ref ?? "<chart-ref>", i = t?.channels?.[n]?.version ?? "<version>", a = e.install?.helm?.releaseName ?? e.name, o = e.install?.helm?.namespace ?? "everest-system";
 	return [
 		`helm upgrade ${a} ${r} \\`,
@@ -420,7 +446,7 @@ function p(e) {
 }
 //#endregion
 //#region src/components/Toolbar.ts
-function m(e) {
+function h(e) {
 	let { filter: t, onChange: n, onRefresh: a, refreshing: o, lastRefreshed: s } = e;
 	return r("div", { style: i.toolbar }, r("input", {
 		type: "search",
@@ -478,24 +504,24 @@ function m(e) {
 }
 //#endregion
 //#region src/icons.ts
-var h = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%25239ca3af'%20stroke-width%3D'1.75'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'18'%20height%3D'18'%20rx%3D'3'%2F%3E%3Cpath%20d%3D'M3%209h18M9%203v18'%2F%3E%3C%2Fsvg%3E", g = /* @__PURE__ */ new Set();
-function _(e, t) {
-	return e ? e.startsWith("data:") || e.startsWith("http://") || e.startsWith("https://") || e.startsWith("/") ? e : t ? `/v1/plugins/${t}/${e}` : h : h;
+var g = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%25239ca3af'%20stroke-width%3D'1.75'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'18'%20height%3D'18'%20rx%3D'3'%2F%3E%3Cpath%20d%3D'M3%209h18M9%203v18'%2F%3E%3C%2Fsvg%3E", _ = /* @__PURE__ */ new Set();
+function v(e, t) {
+	return e ? e.startsWith("data:") || e.startsWith("http://") || e.startsWith("https://") || e.startsWith("/") ? e : t ? `/v1/plugins/${t}/${e}` : g : g;
 }
-function v(e) {
+function y(e) {
 	return r("img", {
-		src: g.has(e.src) ? h : e.src,
+		src: _.has(e.src) ? g : e.src,
 		alt: e.alt ?? "",
 		style: e.style,
 		onError: (t) => {
 			let n = t.currentTarget;
-			n.dataset.failed !== "1" && (n.dataset.failed = "1", g.add(e.src), n.src !== "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%25239ca3af'%20stroke-width%3D'1.75'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'18'%20height%3D'18'%20rx%3D'3'%2F%3E%3Cpath%20d%3D'M3%209h18M9%203v18'%2F%3E%3C%2Fsvg%3E" && (n.src = h));
+			n.dataset.failed !== "1" && (n.dataset.failed = "1", _.add(e.src), n.src !== "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%25239ca3af'%20stroke-width%3D'1.75'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'18'%20height%3D'18'%20rx%3D'3'%2F%3E%3Cpath%20d%3D'M3%209h18M9%203v18'%2F%3E%3C%2Fsvg%3E" && (n.src = g));
 		}
 	});
 }
 //#endregion
 //#region src/components/Row.ts
-function y(e) {
+function b(e) {
 	let { entry: t, pluginName: n, onSelect: a } = e, o = l(t);
 	return r("tr", {
 		key: t.name,
@@ -504,8 +530,8 @@ function y(e) {
 	}, r("td", { style: {
 		...i.td,
 		...i.iconCell
-	} }, r(v, {
-		src: _(t.icon, n),
+	} }, r(y, {
+		src: v(t.icon, n),
 		style: i.iconImg
 	})), r("td", { style: i.td }, r("div", { style: { fontWeight: 600 } }, t.displayName || t.name), r("div", { style: {
 		color: "#6b7280",
@@ -519,15 +545,15 @@ function y(e) {
 		flexDirection: "column",
 		gap: 4,
 		alignItems: "flex-start"
-	} }, r("span", { style: i.maturityChip(t.maturity || "unknown") }, t.maturity || "unknown"), t.access === "gated" ? r("span", { style: i.gatedChip }, "Gated") : null, t.installed ? r("span", { style: f(t.installedVersion, o) ? i.statusOutdated : i.statusInstalled }, f(t.installedVersion, o) ? `Update available · ${t.installedVersion} → ${o}` : t.installedVersion ? `Installed · ${t.installedVersion}` : "Installed") : null)));
+	} }, r("span", { style: i.maturityChip(t.maturity || "unknown") }, t.maturity || "unknown"), t.access === "gated" ? r("span", { style: i.gatedChip }, "Gated") : null, t.installed ? r("span", { style: p(t.installedVersion, o) ? i.statusOutdated : i.statusInstalled }, p(t.installedVersion, o) ? `Update available · ${t.installedVersion} → ${o}` : t.installedVersion ? `Installed · ${t.installedVersion}` : "Installed") : null)));
 }
 //#endregion
 //#region src/components/Drawer.ts
-function b(e) {
+function x(e) {
 	return e.replace(/[._-]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b\w/g, (e) => e.toUpperCase());
 }
-function x(e, t) {
-	let n = b(e);
+function S(e, t) {
+	let n = x(e);
 	return typeof t == "boolean" ? t ? r("span", {
 		key: e,
 		style: i.capChipYes
@@ -551,28 +577,28 @@ function x(e, t) {
 		style: i.capRow
 	}, r("span", { style: i.capKey }, n), r("span", { style: { color: "#111827" } }, String(t)));
 }
-function S(e) {
+function C(e) {
 	let t = Object.entries(e);
 	if (!t.length) return null;
 	let n = t.filter(([, e]) => typeof e == "boolean"), i = t.filter(([, e]) => typeof e != "boolean");
-	return r("div", null, n.length ? r("div", { style: { marginBottom: i.length ? "0.75rem" : 0 } }, ...n.map(([e, t]) => x(e, t))) : null, i.length ? r("div", null, ...i.map(([e, t]) => x(e, t))) : null);
+	return r("div", null, n.length ? r("div", { style: { marginBottom: i.length ? "0.75rem" : 0 } }, ...n.map(([e, t]) => S(e, t))) : null, i.length ? r("div", null, ...i.map(([e, t]) => S(e, t))) : null);
 }
-function C() {
+function w() {
 	if (typeof document > "u") return 64;
 	let e = document.querySelector("header.MuiAppBar-root");
 	if (!e) return 64;
 	let t = Math.round(e.getBoundingClientRect().height);
 	return t > 0 ? t : 64;
 }
-function w() {
-	let [t, n] = e.useState(C);
+function T() {
+	let [t, n] = e.useState(w);
 	return e.useEffect(() => {
-		let e = () => n(C());
+		let e = () => n(w());
 		return e(), window.addEventListener("resize", e), () => window.removeEventListener("resize", e);
 	}, []), t;
 }
-function T(e) {
-	let { entry: t, pluginName: n, onClose: a } = e, o = t.access === "gated", s = o ? null : l(t), c = o ? null : u(t), d = t.installed && f(t.installedVersion, s), m = d ? p(t) : null, h = t.plugin?.extensionPoints ?? [], g = t.provider?.supportedEngines ?? [], y = t.maintainers ?? [], b = w();
+function E(e) {
+	let { entry: t, pluginName: n, onClose: a } = e, o = t.access === "gated", s = o ? null : l(t), c = o ? null : u(t), d = t.installed && p(t.installedVersion, s), f = d ? m(t) : null, h = t.plugin?.extensionPoints ?? [], g = t.provider?.supportedEngines ?? [], _ = t.maintainers ?? [], b = T();
 	return r("div", {
 		style: {
 			...i.drawerBackdrop,
@@ -582,8 +608,8 @@ function T(e) {
 	}, r("div", {
 		style: i.drawer,
 		onClick: (e) => e.stopPropagation()
-	}, r("div", { style: i.drawerHeader }, r(v, {
-		src: _(t.icon, n),
+	}, r("div", { style: i.drawerHeader }, r(y, {
+		src: v(t.icon, n),
 		style: {
 			width: 40,
 			height: 40
@@ -618,11 +644,11 @@ function T(e) {
 	}, e)))) : null, g.length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Supported engines"), r("div", null, ...g.map((e) => r("span", {
 		key: e,
 		style: i.categoryTag
-	}, e)))) : null, t.capabilities && Object.keys(t.capabilities).length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Capabilities"), S(t.capabilities)) : null, y.length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Maintainers"), r("ul", { style: {
+	}, e)))) : null, t.capabilities && Object.keys(t.capabilities).length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Capabilities"), C(t.capabilities)) : null, _.length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Maintainers"), r("ul", { style: {
 		margin: 0,
 		paddingLeft: "1.25rem",
 		fontSize: "0.875rem"
-	} }, ...y.map((e, t) => r("li", { key: t }, e.name || e.github || e.email || "unknown")))) : null, r("div", { style: i.section }, o ? r("div", null, r("h3", { style: i.sectionTitle }, "Access required"), r("p", { style: {
+	} }, ..._.map((e, t) => r("li", { key: t }, e.name || e.github || e.email || "unknown")))) : null, r("div", { style: i.section }, o ? r("div", null, r("h3", { style: i.sectionTitle }, "Access required"), r("p", { style: {
 		color: "#374151",
 		fontSize: "0.875rem",
 		marginTop: 0
@@ -638,7 +664,7 @@ function T(e) {
 	}, "Contact vendor ↗") : r("div", { style: {
 		color: "#6b7280",
 		fontSize: "0.8125rem"
-	} }, "No contact URL configured. See the source repository for details.")) : d ? r("div", null, r("div", { style: i.warnBox }, `A newer version (${s}) is available. Currently installed: ${t.installedVersion}`), r("h3", { style: i.sectionTitle }, "Upgrade with Helm"), r("pre", { style: i.codeBlock }, m)) : r("div", null, r("h3", { style: i.sectionTitle }, "Install with Helm"), r("pre", { style: i.codeBlock }, c))), r("div", { style: i.section }, r("div", { style: {
+	} }, "No contact URL configured. See the source repository for details.")) : d ? r("div", null, r("div", { style: i.warnBox }, `A newer version (${s}) is available. Currently installed: ${t.installedVersion}`), r("h3", { style: i.sectionTitle }, "Upgrade with Helm"), r("pre", { style: i.codeBlock }, f)) : r("div", null, r("h3", { style: i.sectionTitle }, "Install with Helm"), r("pre", { style: i.codeBlock }, c))), r("div", { style: i.section }, r("div", { style: {
 		display: "flex",
 		gap: "0.75rem",
 		flexWrap: "wrap"
@@ -654,13 +680,13 @@ function T(e) {
 }
 //#endregion
 //#region src/main.tsx
-var E = (t) => {
-	let [n, l] = e.useState(null), [u, d] = e.useState(null), [f, p] = e.useState(null), [h, g] = e.useState(null), [_, v] = e.useState(!0), [b, x] = e.useState(null), [S, C] = e.useState({
+var D = (t) => {
+	let [n, l] = e.useState(null), [u, d] = e.useState(null), [f, p] = e.useState(null), [m, g] = e.useState(null), [_, v] = e.useState(!0), [y, x] = e.useState(null), [S, C] = e.useState({
 		query: "",
 		type: "all",
 		installedOnly: !1,
 		hideGated: !1
-	}), [w, E] = e.useState(null), D = e.useCallback(() => {
+	}), [w, T] = e.useState(null), D = e.useCallback(() => {
 		v(!0), g(null), a().then((e) => {
 			l(e), x(/* @__PURE__ */ new Date());
 		}).catch((e) => g(e.message)).finally(() => v(!1)), d(null), p(null), o().then((e) => {
@@ -700,33 +726,33 @@ var E = (t) => {
 		target: "_blank",
 		rel: "noopener noreferrer",
 		style: i.ctaLink
-	}, "Need other tech? →"))), h ? r("div", { style: i.errorBox }, `Failed to load catalog: ${h}`) : null, n?.stale ? r("div", { style: i.warnBox }, "Showing cached catalog — upstream hub index is currently unreachable.") : null, f ? r("div", { style: i.warnBox }, `Could not load installed extensions: ${f}. Showing catalog without install status.`) : null, r(m, {
+	}, "Need other tech? →"))), m ? r("div", { style: i.errorBox }, `Failed to load catalog: ${m}`) : null, n?.stale ? r("div", { style: i.warnBox }, "Showing cached catalog — upstream hub index is currently unreachable.") : null, f ? r("div", { style: i.warnBox }, `Could not load installed extensions: ${f}. Showing catalog without install status.`) : null, r(h, {
 		filter: S,
 		onChange: C,
 		onRefresh: D,
 		refreshing: _,
-		lastRefreshed: b
+		lastRefreshed: y
 	}), _ && !n ? r("div", { style: i.empty }, "Loading catalog…") : A.length === 0 ? r("div", { style: i.empty }, k.length === 0 ? "No extensions in the catalog." : "No extensions match the current filters.") : r("table", { style: i.table }, r("thead", null, r("tr", null, r("th", { style: {
 		...i.th,
 		...i.iconCell
-	} }, ""), r("th", { style: i.th }, "Name"), r("th", { style: i.th }, "Type"), r("th", { style: i.th }, "Version"), r("th", { style: i.th }, "Categories"), r("th", { style: i.th }, "Maturity"))), r("tbody", null, ...A.map((e) => y({
+	} }, ""), r("th", { style: i.th }, "Name"), r("th", { style: i.th }, "Type"), r("th", { style: i.th }, "Version"), r("th", { style: i.th }, "Categories"), r("th", { style: i.th }, "Maturity"))), r("tbody", null, ...A.map((e) => b({
 		entry: e,
 		pluginName: t.pluginName,
-		onSelect: E
-	})))), w ? r(T, {
+		onSelect: T
+	})))), w ? r(E, {
 		entry: w,
 		pluginName: t.pluginName,
-		onClose: () => E(null)
+		onClose: () => T(null)
 	}) : null);
-}, D = (e) => {
+}, O = (e) => {
 	n(e), e.registerExtension({
 		type: "sidebarItem",
 		label: "Plugin Hub"
 	}), e.registerExtension({
 		type: "route",
 		label: "Plugin Hub",
-		component: E
+		component: D
 	});
 };
 //#endregion
-export { D as default };
+export { O as default };
