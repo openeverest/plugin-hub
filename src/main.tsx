@@ -18,8 +18,23 @@ import type {
   PluginRouteProps,
 } from '@openeverest/plugin-sdk';
 
-import { React, h, initRuntime } from './runtime';
-import { styles } from './styles';
+import { React, h, initRuntime, cssNonce } from './runtime';
+import { sx } from './styles';
+import {
+  PluginThemeProvider,
+  Box,
+  Typography,
+  Button,
+  Link,
+  Alert,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableContainer,
+  Paper,
+} from '@openeverest/ui-lib';
 import { fetchCatalog, fetchInstalled, installedKey } from './data';
 import { matchesFilter } from './catalog';
 import { Toolbar } from './components/Toolbar';
@@ -99,106 +114,131 @@ const HubPage = (props: PluginRouteProps): any => {
   };
 
   return h(
-    'div',
-    { style: styles.page },
+    PluginThemeProvider,
+    { cacheKey: 'plugin-hub', nonce: cssNonce },
     h(
-      'div',
-      { style: styles.headerRow },
+      Box,
+      { sx: sx.page },
       h(
-        'div',
-        null,
-        h('h1', { style: styles.title }, 'The Hub'),
+        Box,
+        { sx: sx.headerRow },
         h(
-          'p',
-          { style: styles.subtitle },
-          `Browse OpenEverest plugins and providers. ${counts.total} available · ${
-            installedLoading ? 'checking installed…' : `${counts.installed} installed`
-          }.`,
-        ),
-      ),
-      h(
-        'div',
-        { style: styles.headerActions },
-        h(
-          'a',
-          {
-            href: 'https://github.com/openeverest/hub',
-            target: '_blank',
-            rel: 'noopener noreferrer',
-            style: styles.ctaBtn,
-          },
-          'Add extension',
-        ),
-        h(
-          'a',
-          {
-            href: 'https://github.com/openeverest/openeverest/issues/',
-            target: '_blank',
-            rel: 'noopener noreferrer',
-            style: styles.ctaLink,
-          },
-          'Need other tech? →',
-        ),
-      ),
-    ),
-
-    error
-      ? h('div', { style: styles.errorBox }, `Failed to load catalog: ${error}`)
-      : null,
-    data?.stale
-      ? h(
-          'div',
-          { style: styles.warnBox },
-          'Showing cached catalog — upstream hub index is currently unreachable.',
-        )
-      : null,
-    installedError
-      ? h(
-          'div',
-          { style: styles.warnBox },
-          `Could not load installed extensions: ${installedError}. Showing catalog without install status.`,
-        )
-      : null,
-
-    h(Toolbar, {
-      filter,
-      onChange: setFilter,
-      onRefresh: load,
-      refreshing: loading,
-      lastRefreshed,
-    }),
-
-    loading && !data
-      ? h('div', { style: styles.empty }, 'Loading catalog…')
-      : filtered.length === 0
-      ? h(
-          'div',
-          { style: styles.empty },
-          entries.length === 0
-            ? 'No extensions in the catalog.'
-            : 'No extensions match the current filters.',
-        )
-      : h(
-          'table',
-          { style: styles.table },
+          Box,
+          null,
+          h(Typography, { variant: 'h5', sx: { fontWeight: 600 } }, 'The Hub'),
           h(
-            'thead',
-            null,
-            h(
-              'tr',
-              null,
-              h('th', { style: { ...styles.th, ...styles.iconCell } }, ''),
-              h('th', { style: styles.th }, 'Name'),
-              h('th', { style: styles.th }, 'Type'),
-              h('th', { style: styles.th }, 'Version'),
-              h('th', { style: styles.th }, 'Categories'),
-              h('th', { style: styles.th }, 'Maturity'),
-            ),
-          ),
-          h('tbody', null, ...filtered.map((entry) => Row({ entry, pluginName: props.pluginName, onSelect: setSelected }))),
+            Typography,
+            { variant: 'body2', sx: sx.subtitle },
+            `Browse OpenEverest plugins and providers. ${counts.total} available · ${
+              installedLoading ? 'checking installed…' : `${counts.installed} installed`
+            }.`
+          )
         ),
+        h(
+          Box,
+          { sx: sx.headerActions },
+          h(
+            Button,
+            {
+              variant: 'contained',
+              size: 'small',
+              href: 'https://github.com/openeverest/hub',
+              target: '_blank',
+              rel: 'noopener noreferrer',
+            },
+            'Add extension'
+          ),
+          h(
+            Link,
+            {
+              href: 'https://github.com/openeverest/openeverest/issues/',
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              variant: 'caption',
+            },
+            'Need other tech? →'
+          )
+        )
+      ),
 
-    selected ? h(Drawer, { entry: selected, pluginName: props.pluginName, onClose: () => setSelected(null) }) : null,
+      error
+        ? h(
+            Alert,
+            { severity: 'error', sx: { mb: 2 } },
+            `Failed to load catalog: ${error}`
+          )
+        : null,
+      data?.stale
+        ? h(
+            Alert,
+            { severity: 'warning', sx: { mb: 2 } },
+            'Showing cached catalog — upstream hub index is currently unreachable.'
+          )
+        : null,
+      installedError
+        ? h(
+            Alert,
+            { severity: 'warning', sx: { mb: 2 } },
+            `Could not load installed extensions: ${installedError}. Showing catalog without install status.`
+          )
+        : null,
+
+      h(Toolbar, {
+        filter,
+        onChange: setFilter,
+        onRefresh: load,
+        refreshing: loading,
+        lastRefreshed,
+      }),
+
+      loading && !data
+        ? h(Box, { sx: sx.empty }, 'Loading catalog…')
+        : filtered.length === 0
+        ? h(
+            Box,
+            { sx: sx.empty },
+            entries.length === 0
+              ? 'No extensions in the catalog.'
+              : 'No extensions match the current filters.'
+          )
+        : h(
+            TableContainer,
+            { component: Paper, variant: 'outlined' },
+            h(
+              Table,
+              { size: 'small' },
+              h(
+                TableHead,
+                null,
+                h(
+                  TableRow,
+                  null,
+                  h(TableCell, { sx: { width: 40 } }, ''),
+                  h(TableCell, null, 'Name'),
+                  h(TableCell, null, 'Type'),
+                  h(TableCell, null, 'Version'),
+                  h(TableCell, null, 'Categories'),
+                  h(TableCell, null, 'Maturity')
+                )
+              ),
+              h(
+                TableBody,
+                null,
+                ...filtered.map((entry) =>
+                  Row({ entry, pluginName: props.pluginName, onSelect: setSelected })
+                )
+              )
+            )
+          ),
+
+      selected
+        ? h(Drawer, {
+            entry: selected,
+            pluginName: props.pluginName,
+            onClose: () => setSelected(null),
+          })
+        : null
+    )
   );
 };
 

@@ -1,5 +1,14 @@
 import { h } from '../runtime';
-import { styles } from '../styles';
+import { sx } from '../styles';
+import {
+  Box,
+  TextField,
+  Chip,
+  FormControlLabel,
+  Checkbox,
+  Button,
+  Typography,
+} from '@openeverest/ui-lib';
 import type { FilterState } from '../types';
 
 export function Toolbar(props: {
@@ -16,69 +25,64 @@ export function Toolbar(props: {
     { key: 'provider', label: 'Providers' },
   ];
   return h(
-    'div',
-    { style: styles.toolbar },
-    h('input', {
+    Box,
+    { sx: sx.toolbar },
+    h(TextField, {
+      size: 'small',
       type: 'search',
       placeholder: 'Search by name, description, category…',
       value: filter.query,
-      style: styles.input,
       onChange: (e: any) => onChange({ ...filter, query: e.target.value }),
+      sx: { flex: '1 1 240px', minWidth: 200 },
     }),
     h(
-      'div',
-      { style: styles.chipGroup },
+      Box,
+      { sx: { display: 'flex', gap: 0.5 } },
       ...chipDefs.map((c) =>
-        h(
-          'button',
-          {
-            key: c.key,
-            type: 'button',
-            style: styles.chip(filter.type === c.key),
-            onClick: () => onChange({ ...filter, type: c.key }),
-          },
-          c.label,
-        ),
-      ),
+        h(Chip, {
+          key: c.key,
+          label: c.label,
+          size: 'small',
+          onClick: () => onChange({ ...filter, type: c.key }),
+          color: filter.type === c.key ? 'primary' : 'default',
+          variant: filter.type === c.key ? 'filled' : 'outlined',
+        })
+      )
     ),
-    h(
-      'label',
-      { style: styles.checkboxRow },
-      h('input', {
-        type: 'checkbox',
+    h(FormControlLabel, {
+      control: h(Checkbox, {
+        size: 'small',
         checked: filter.installedOnly,
         onChange: (e: any) =>
           onChange({ ...filter, installedOnly: e.target.checked }),
       }),
-      'Installed only',
-    ),
-    h(
-      'label',
-      { style: styles.checkboxRow },
-      h('input', {
-        type: 'checkbox',
+      label: 'Installed only',
+    }),
+    h(FormControlLabel, {
+      control: h(Checkbox, {
+        size: 'small',
         checked: !filter.hideGated,
         onChange: (e: any) =>
           onChange({ ...filter, hideGated: !e.target.checked }),
       }),
-      'Include gated',
-    ),
+      label: 'Include gated',
+    }),
     h(
-      'button',
+      Button,
       {
-        type: 'button',
-        style: styles.refreshBtn,
+        variant: 'outlined',
+        size: 'small',
         onClick: onRefresh,
         disabled: refreshing,
       },
-      refreshing ? 'Refreshing…' : 'Refresh',
+      refreshing ? 'Refreshing…' : 'Refresh'
     ),
     lastRefreshed
       ? h(
-          'span',
-          { style: { fontSize: '0.75rem', color: '#6b7280' } },
-          `Updated ${lastRefreshed.toLocaleTimeString()}`,
+          Typography,
+          { variant: 'caption', sx: { color: 'text.secondary' } },
+          `Updated ${lastRefreshed.toLocaleTimeString()}`
         )
-      : null,
+      : null
   );
 }

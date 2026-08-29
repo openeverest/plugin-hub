@@ -1,292 +1,94 @@
-// Styling — inline objects, host theme inherited.
+// Styling via MUI `sx` + host theme tokens (palette paths, spacing units).
+// Colors resolve to the host-owned `--mui-*` CSS variables, so plugin-hub
+// follows the host palette and dark mode with no hardcoded values.
+import type { SxProps, Theme } from '@openeverest/ui-lib';
 
-export const styles = {
-  page: { padding: '1.5rem', maxWidth: 1280, margin: '0 auto' } as const,
+export type MuiColor =
+  | 'default'
+  | 'primary'
+  | 'secondary'
+  | 'error'
+  | 'info'
+  | 'success'
+  | 'warning';
+
+export const sx: Record<string, SxProps<Theme>> = {
+  page: { p: 3, maxWidth: 1280, mx: 'auto' },
   headerRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '1rem',
-    marginBottom: '1rem',
-    flexWrap: 'wrap' as const,
+    gap: 2,
+    mb: 2,
+    flexWrap: 'wrap',
   },
-  title: { margin: 0, fontSize: '1.5rem', fontWeight: 600 },
-  subtitle: { margin: 0, color: '#6b7280', fontSize: '0.875rem' },
-  toolbar: {
-    display: 'flex',
-    gap: '0.75rem',
-    alignItems: 'center',
-    flexWrap: 'wrap' as const,
-    padding: '0.75rem 1rem',
-    background: '#f9fafb',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    marginBottom: '1rem',
-  },
-  input: {
-    flex: '1 1 240px',
-    minWidth: 200,
-    padding: '0.5rem 0.75rem',
-    fontSize: '0.875rem',
-    border: '1px solid #d1d5db',
-    borderRadius: 6,
-    background: '#fff',
-  } as const,
-  chipGroup: { display: 'flex', gap: '0.25rem' } as const,
-  chip: (active: boolean) => ({
-    padding: '0.4rem 0.75rem',
-    fontSize: '0.8125rem',
-    border: '1px solid ' + (active ? '#1f2937' : '#d1d5db'),
-    background: active ? '#1f2937' : '#fff',
-    color: active ? '#fff' : '#374151',
-    borderRadius: 999,
-    cursor: 'pointer',
-  }),
-  checkboxRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    fontSize: '0.875rem',
-    color: '#374151',
-    cursor: 'pointer',
-  } as const,
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse' as const,
-    background: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  th: {
-    textAlign: 'left' as const,
-    padding: '0.75rem 1rem',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    color: '#6b7280',
-    background: '#f9fafb',
-    borderBottom: '1px solid #e5e7eb',
-  },
-  td: {
-    padding: '0.75rem 1rem',
-    fontSize: '0.875rem',
-    borderBottom: '1px solid #f3f4f6',
-    verticalAlign: 'top' as const,
-  } as const,
-  iconCell: { width: 40, padding: '0.75rem', textAlign: 'center' as const },
-  iconImg: { width: 28, height: 28, objectFit: 'contain' as const },
-  statusInstalled: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  statusAvailable: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#e5e7eb',
-    color: '#374151',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  maturityChip: (maturity: string) => {
-    const m = (maturity || 'unknown').toLowerCase();
-    const palette: Record<string, { bg: string; fg: string }> = {
-      alpha: { bg: '#ffedd5', fg: '#9a3412' },
-      beta: { bg: '#dbeafe', fg: '#1e3a8a' },
-      stable: { bg: '#dcfce7', fg: '#166534' },
-      ga: { bg: '#dcfce7', fg: '#166534' },
-      deprecated: { bg: '#fee2e2', fg: '#991b1b' },
-      unknown: { bg: '#e5e7eb', fg: '#374151' },
-    };
-    const c = palette[m] ?? palette.unknown;
-    return {
-      display: 'inline-block',
-      padding: '0.15rem 0.55rem',
-      background: c.bg,
-      color: c.fg,
-      borderRadius: 999,
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      textTransform: 'capitalize' as const,
-    };
-  },
-  gatedChip: {
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: '#ede9fe',
-    color: '#5b21b6',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-  } as const,
-  capChipYes: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0.15rem 0.55rem',
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    marginRight: 6,
-    marginBottom: 6,
-  } as const,
-  capChipNo: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0.15rem 0.55rem',
-    background: '#f3f4f6',
-    color: '#9ca3af',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    marginRight: 6,
-    marginBottom: 6,
-    textDecoration: 'line-through' as const,
-  } as const,
-  capRow: {
-    display: 'flex',
-    gap: '0.5rem',
-    alignItems: 'baseline',
-    marginBottom: 4,
-    flexWrap: 'wrap' as const,
-    fontSize: '0.875rem',
-  } as const,
-  capKey: { color: '#6b7280', fontWeight: 500, minWidth: 120 } as const,
-  typeChip: (type: string) => ({
-    display: 'inline-block',
-    padding: '0.15rem 0.55rem',
-    background: type === 'provider' ? '#dbeafe' : '#ede9fe',
-    color: type === 'provider' ? '#1e3a8a' : '#5b21b6',
-    borderRadius: 999,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    textTransform: 'capitalize' as const,
-  }),
-  categoryTag: {
-    display: 'inline-block',
-    padding: '0.1rem 0.5rem',
-    fontSize: '0.7rem',
-    background: '#f3f4f6',
-    color: '#4b5563',
-    borderRadius: 4,
-    marginRight: 4,
-  } as const,
-  refreshBtn: {
-    padding: '0.4rem 0.9rem',
-    fontSize: '0.8125rem',
-    border: '1px solid #d1d5db',
-    background: '#fff',
-    color: '#374151',
-    borderRadius: 6,
-    cursor: 'pointer',
-  } as const,
-  ctaBtn: {
-    padding: '0.5rem 1rem',
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    border: '1px solid #2563eb',
-    background: '#2563eb',
-    color: '#fff',
-    borderRadius: 6,
-    cursor: 'pointer',
-    textDecoration: 'none',
-    display: 'inline-block',
-  } as const,
-  ctaLink: {
-    fontSize: '0.8125rem',
-    color: '#6b7280',
-    textDecoration: 'none',
-  } as const,
   headerActions: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     alignItems: 'flex-end',
-    gap: '0.375rem',
-  } as const,
-  empty: {
-    padding: '3rem',
-    textAlign: 'center' as const,
-    color: '#6b7280',
+    gap: 0.75,
   },
-  errorBox: {
-    padding: '0.75rem 1rem',
-    background: '#fee2e2',
-    color: '#991b1b',
-    border: '1px solid #fecaca',
-    borderRadius: 6,
-    marginBottom: '1rem',
-    fontSize: '0.875rem',
-  },
-  warnBox: {
-    padding: '0.6rem 1rem',
-    background: '#fef3c7',
-    color: '#92400e',
-    border: '1px solid #fde68a',
-    borderRadius: 6,
-    marginBottom: '1rem',
-    fontSize: '0.8125rem',
-  },
-  drawerBackdrop: {
-    position: 'fixed' as const,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    background: 'rgba(15, 23, 42, 0.4)',
-    // Sit above MUI's permanent drawer (1200) but below the host's AppBar
-    // (1100 by default, but some themes push it higher) — the `top` offset
-    // is computed at render time so the AppBar always stays visible.
-    zIndex: 1200,
+  subtitle: { color: 'text.secondary' },
+  toolbar: {
     display: 'flex',
-    justifyContent: 'flex-end',
-  },
-  drawer: {
-    width: 'min(560px, 100%)',
-    height: '100%',
-    background: '#fff',
-    boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.15)',
-    overflowY: 'auto' as const,
-    padding: '1.5rem',
-    boxSizing: 'border-box' as const,
-  },
-  drawerHeader: {
-    display: 'flex',
+    gap: 1.5,
     alignItems: 'center',
-    gap: '0.75rem',
-    marginBottom: '1rem',
+    flexWrap: 'wrap',
+    p: 1.5,
+    bgcolor: 'background.paper',
+    border: 1,
+    borderColor: 'divider',
+    borderRadius: 1,
+    mb: 2,
   },
-  closeBtn: {
-    marginLeft: 'auto',
-    border: 'none',
-    background: 'transparent',
-    fontSize: '1.5rem',
-    cursor: 'pointer',
-    color: '#6b7280',
-  } as const,
-  section: { marginTop: '1.25rem' } as const,
+  empty: { p: 6, textAlign: 'center', color: 'text.secondary' },
+  section: { mt: 2.5 },
   sectionTitle: {
-    margin: '0 0 0.5rem',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    color: '#6b7280',
+    textTransform: 'uppercase',
+    color: 'text.secondary',
     letterSpacing: '0.05em',
+    fontSize: '0.75rem',
+    mb: 1,
   },
   codeBlock: {
-    background: '#0f172a',
-    color: '#e2e8f0',
-    padding: '0.75rem 1rem',
-    borderRadius: 6,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    bgcolor: 'grey.900',
+    color: 'grey.100',
+    p: 1.5,
+    borderRadius: 1,
+    fontFamily: 'monospace',
     fontSize: '0.8125rem',
-    whiteSpace: 'pre' as const,
-    overflowX: 'auto' as const,
+    whiteSpace: 'pre',
+    overflowX: 'auto',
   },
+  iconImg: { width: 28, height: 28, objectFit: 'contain' },
+  drawerHeader: { display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 },
+  capRow: {
+    display: 'flex',
+    gap: 1,
+    alignItems: 'baseline',
+    mb: 0.5,
+    flexWrap: 'wrap',
+  },
+  capKey: { color: 'text.secondary', fontWeight: 500, minWidth: 120 },
 };
+
+// Maps a maturity string to a MUI Chip color, so the chip follows the theme.
+export function maturityColor(maturity: string): MuiColor {
+  switch ((maturity || 'unknown').toLowerCase()) {
+    case 'alpha':
+      return 'warning';
+    case 'beta':
+      return 'info';
+    case 'stable':
+    case 'ga':
+      return 'success';
+    case 'deprecated':
+      return 'error';
+    default:
+      return 'default';
+  }
+}
+
+export function typeColor(type: string): MuiColor {
+  return type === 'provider' ? 'info' : 'secondary';
+}
