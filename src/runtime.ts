@@ -7,10 +7,12 @@ import type { PluginApi } from '@openeverest/plugin-sdk';
 
 export let React: PluginApi['React'];
 export let pluginFetch: PluginApi['fetch'];
+export let pluginBasePath: PluginApi['basePath'];
 
 export function initRuntime(api: PluginApi): void {
   React = api.React;
   pluginFetch = api.fetch.bind(api);
+  pluginBasePath = api.basePath;
 }
 
 // h is a thin React.createElement wrapper so components can be authored

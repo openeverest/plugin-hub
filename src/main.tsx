@@ -15,7 +15,6 @@
 import type {
   PluginRegisterFn,
   PluginApi,
-  PluginRouteProps,
 } from '@openeverest/plugin-sdk';
 
 import { React, h, initRuntime } from './runtime';
@@ -31,7 +30,7 @@ import type { CatalogEntry, FilterState, SummaryResponse } from './types';
 // Page
 // ---------------------------------------------------------------------------
 
-const HubPage = (props: PluginRouteProps): any => {
+const HubPage = (): any => {
   const [data, setData] = React.useState<SummaryResponse | null>(null);
   const [installedKeys, setInstalledKeys] = React.useState<Set<string> | null>(null);
   const [installedError, setInstalledError] = React.useState<string | null>(null);
@@ -195,10 +194,10 @@ const HubPage = (props: PluginRouteProps): any => {
               h('th', { style: styles.th }, 'Maturity'),
             ),
           ),
-          h('tbody', null, ...filtered.map((entry) => Row({ entry, pluginName: props.pluginName, onSelect: setSelected }))),
+          h('tbody', null, ...filtered.map((entry) => Row({ entry, onSelect: setSelected }))),
         ),
 
-    selected ? h(Drawer, { entry: selected, pluginName: props.pluginName, onClose: () => setSelected(null) }) : null,
+    selected ? h(Drawer, { entry: selected, onClose: () => setSelected(null) }) : null,
   );
 };
 

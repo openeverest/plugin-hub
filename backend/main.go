@@ -191,10 +191,10 @@ func (c *catalogCache) fetchLocked() ([]byte, error) {
 // raw.githubusercontent.com). The host UI enforces a `default-src 'self'`
 // CSP that blocks those cross-origin image loads, so the backend rewrites
 // every absolute icon URL in the catalog/summary responses to a *relative*
-// path (e.g. `api/icon/<key>`). The frontend then prepends the plugin's
-// runtime mount prefix (`/v1/plugins/<pluginName>`) — derived from the
-// SDK-supplied pluginName — so the URL is always correct regardless of the
-// release name the chart was installed under.
+// path (e.g. `api/icon/<key>`). The frontend then prepends the host-provided
+// proxy base (the SDK's `api.basePath`, i.e.
+// `/v1/clusters/<cluster>/plugins/<pluginName>`) so the URL is always correct
+// regardless of the cluster or the release name the chart was installed under.
 //
 // Keys are SHA-256 of the upstream URL: stable, opaque, and content-addressed
 // by URL (no caller-supplied URL parameter, no SSRF surface). Only URLs that
@@ -463,8 +463,8 @@ func makeCatalogHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc 
 //   - GET /v1/clusters/{cluster}/providers — Kubernetes-style list, one item
 //     per installed Provider CR. The catalog name lives at metadata.name,
 //     the chart version at metadata.labels["app.kubernetes.io/version"].
-//   - GET /v1/plugins — flat list of host-registered generic plugins. Catalog
-//     name lives at .name, version at .version.
+//   - GET /v1/clusters/{cluster}/plugins — flat list of host-registered generic
+//     plugins. Catalog name lives at .name, version at .version.
 //
 // We surface a non-fatal error if either call fails so the UI can still show
 // partial state. A 404 on either endpoint is treated as "feature absent" and
@@ -482,7 +482,7 @@ func fetchInstalled(apiBase, cluster, authHeader string) ([]installedExtension, 
 	} else {
 		all = append(all, providers...)
 	}
-	if plugins, err := fetchPlugins(apiBase, authHeader); err != nil {
+	if plugins, err := fetchPlugins(apiBase, cluster, authHeader); err != nil {
 		errs = append(errs, "plugins: "+err.Error())
 	} else {
 		all = append(all, plugins...)
@@ -524,8 +524,8 @@ func fetchProviders(apiBase, cluster, authHeader string) ([]installedExtension, 
 	return out, nil
 }
 
-func fetchPlugins(apiBase, authHeader string) ([]installedExtension, error) {
-	body, err := everestGET(apiBase+"/v1/plugins", authHeader)
+func fetchPlugins(apiBase, cluster, authHeader string) ([]installedExtension, error) {
+	body, err := everestGET(apiBase+"/v1/clusters/"+url.PathEscape(cluster)+"/plugins", authHeader)
 	if err != nil {
 		return nil, err
 	}
