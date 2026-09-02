@@ -2,6 +2,7 @@ import { h, React } from '../runtime';
 import { styles } from '../styles';
 import { defaultChannelVersion, helmInstallCommand } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
+import { CodeBlock } from './CodeBlock';
 import type { CatalogEntry, Prerequisite } from '../types';
 
 function humanizeKey(key: string): string {
@@ -93,7 +94,7 @@ function renderPrerequisite(pre: Prerequisite, key: number): any {
           'details',
           null,
           h('summary', { style: styles.prereqSummary }, 'Install command'),
-          h('pre', { style: { ...styles.codeBlock, marginTop: '0.5rem' } }, prerequisiteHelmCommand(pre)),
+          h(CodeBlock, { command: prerequisiteHelmCommand(pre), style: { marginTop: '0.5rem' } }),
         )
       : null,
   );
@@ -347,7 +348,7 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
               'div',
               null,
               h('h3', { style: styles.sectionTitle }, 'Install with Helm'),
-              h('pre', { style: styles.codeBlock }, install),
+              h(CodeBlock, { command: install }),
             ),
       ),
 
