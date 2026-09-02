@@ -2,6 +2,19 @@
 
 export type ExtensionType = 'plugin' | 'provider' | string;
 
+export interface Prerequisite {
+  name: string;
+  description?: string;
+  installUrl?: string;
+  helm?: {
+    oci: string;
+    version?: string;
+    namespace: string;
+    createNamespace?: boolean;
+    defaultValues?: Record<string, string>;
+  };
+}
+
 export interface CatalogEntry {
   name: string;
   type: ExtensionType;
@@ -24,6 +37,7 @@ export interface CatalogEntry {
   };
   install?: {
     helm?: { namespace?: string; releaseName?: string };
+    prerequisites?: Prerequisite[];
   };
   plugin?: {
     contributes?: { backend?: boolean; ui?: boolean; cli?: boolean };

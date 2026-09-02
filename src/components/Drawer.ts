@@ -2,7 +2,7 @@ import { h, React } from '../runtime';
 import { styles } from '../styles';
 import { defaultChannelVersion, helmInstallCommand } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
-import type { CatalogEntry } from '../types';
+import type { CatalogEntry, Prerequisite } from '../types';
 
 function humanizeKey(key: string): string {
   return key
@@ -50,6 +50,62 @@ function renderCapabilityValue(key: string, value: unknown): any {
     { key, style: styles.capRow },
     h('span', { style: styles.capKey }, label),
     h('span', { style: { color: '#111827' } }, String(value)),
+  );
+}
+
+function prerequisiteHelmCommand(pre: Prerequisite): string {
+  const helm = pre.helm!;
+  const release = pre.name;
+  const lines = [`helm install ${release} ${helm.oci} \\`];
+  if (helm.version) lines.push(`  --version ${helm.version} \\`);
+  lines.push(`  -n ${helm.namespace}${helm.createNamespace ? ' --create-namespace' : ''}`);
+  for (const [k, v] of Object.entries(helm.defaultValues ?? {})) {
+    lines[lines.length - 1] += ' \\';
+    lines.push(`  --set ${k}=${v}`);
+  }
+  return lines.join('\n');
+}
+
+function renderPrerequisite(pre: Prerequisite, key: number): any {
+  return h(
+    'div',
+    { key, style: styles.prereqCard },
+    h(
+      'div',
+      { style: styles.prereqHead },
+      h('span', { style: styles.prereqName }, pre.name),
+      pre.installUrl
+        ? h(
+            'a',
+            {
+              href: pre.installUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              style: styles.prereqLink,
+            },
+            'Docs ↗',
+          )
+        : null,
+    ),
+    pre.description ? h('div', { style: styles.prereqDesc }, pre.description) : null,
+    pre.helm
+      ? h(
+          'details',
+          null,
+          h('summary', { style: styles.prereqSummary }, 'Install command'),
+          h('pre', { style: { ...styles.codeBlock, marginTop: '0.5rem' } }, prerequisiteHelmCommand(pre)),
+        )
+      : null,
+  );
+}
+
+function renderPrerequisites(prerequisites: Prerequisite[] | undefined): any {
+  if (!prerequisites || !prerequisites.length) return null;
+  return h(
+    'div',
+    { style: styles.section },
+    h('h3', { style: styles.sectionTitle }, 'Prerequisites'),
+    h('div', { style: styles.prereqList }, ...prerequisites.map(renderPrerequisite)),
   );
 }
 
@@ -246,6 +302,8 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
             ),
           )
         : null,
+
+      isGated ? null : renderPrerequisites(entry.install?.prerequisites),
 
       h(
         'div',

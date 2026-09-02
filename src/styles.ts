@@ -289,4 +289,44 @@ export const styles = {
     whiteSpace: 'pre' as const,
     overflowX: 'auto' as const,
   },
+  prereqList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem',
+  } as const,
+  prereqCard: {
+    border: '1px solid #e5e7eb',
+    borderRadius: 8,
+    padding: '0.625rem 0.75rem',
+    background: '#f9fafb',
+  } as const,
+  prereqHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+  } as const,
+  prereqName: {
+    fontWeight: 600,
+    color: '#111827',
+    fontSize: '0.875rem',
+  } as const,
+  prereqDesc: {
+    color: '#374151',
+    fontSize: '0.8125rem',
+    marginTop: '0.2rem',
+  } as const,
+  prereqLink: {
+    fontSize: '0.75rem',
+    color: '#2563eb',
+    textDecoration: 'none',
+    whiteSpace: 'nowrap' as const,
+  } as const,
+  prereqSummary: {
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    color: '#2563eb',
+    marginTop: '0.5rem',
+    userSelect: 'none' as const,
+  } as const,
 };
