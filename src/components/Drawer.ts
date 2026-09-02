@@ -91,8 +91,8 @@ function useAppBarOffset(): number {
   return offset;
 }
 
-export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose: () => void }): any {
-  const { entry, pluginName, onClose } = props;
+export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
+  const { entry, onClose } = props;
   const isGated = entry.access === 'gated';
   const version = isGated ? null : defaultChannelVersion(entry);
   const install = isGated ? null : helmInstallCommand(entry);
@@ -115,7 +115,7 @@ export function Drawer(props: { entry: CatalogEntry; pluginName: string; onClose
         'div',
         { style: styles.drawerHeader },
         h(IconImg, {
-          src: resolveIconSrc(entry.icon, pluginName),
+          src: resolveIconSrc(entry.icon),
           style: { width: 40, height: 40 },
         }),
         h(

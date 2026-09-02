@@ -6,10 +6,9 @@ import type { CatalogEntry } from '../types';
 
 export function Row(props: {
   entry: CatalogEntry;
-  pluginName: string;
   onSelect: (e: CatalogEntry) => void;
 }): any {
-  const { entry, pluginName, onSelect } = props;
+  const { entry, onSelect } = props;
   const version = defaultChannelVersion(entry);
   return h(
     'tr',
@@ -22,7 +21,7 @@ export function Row(props: {
       'td',
       { style: { ...styles.td, ...styles.iconCell } },
       h(IconImg, {
-        src: resolveIconSrc(entry.icon, pluginName),
+        src: resolveIconSrc(entry.icon),
         style: styles.iconImg,
       }),
     ),
