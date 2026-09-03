@@ -38,10 +38,11 @@ function checkIcon(): any {
   );
 }
 
-// A code snippet with a one-click copy button in the bottom-right corner.
+// A code snippet with a one-click copy button in the top-right corner.
 export function CodeBlock(props: { command: string; style?: any }): any {
   const { command } = props;
   const [copied, setCopied] = React.useState(false);
+  const [hovered, setHovered] = React.useState(false);
 
   const copy = React.useCallback(() => {
     const flash = () => {
@@ -57,13 +58,21 @@ export function CodeBlock(props: { command: string; style?: any }): any {
 
   return h(
     'div',
-    { style: { ...styles.codeBlockWrap, ...(props.style || {}) } },
+    {
+      style: { ...styles.codeBlockWrap, ...(props.style || {}) },
+      onMouseEnter: () => setHovered(true),
+      onMouseLeave: () => setHovered(false),
+    },
     h(
       'button',
       {
         type: 'button',
         onClick: copy,
-        style: styles.copyBtn,
+        style: {
+          ...styles.copyBtn,
+          opacity: hovered || copied ? 1 : 0,
+          pointerEvents: hovered || copied ? 'auto' : 'none',
+        },
         title: copied ? 'Copied!' : 'Copy to clipboard',
         'aria-label': copied ? 'Copied' : 'Copy to clipboard',
       },
