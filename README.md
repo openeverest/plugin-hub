@@ -8,7 +8,7 @@ The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It
 - **Stale-tolerant**: the upstream catalog is cached in-memory; if GitHub becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
 - **Browse-only in v1.** Each catalog entry shows a copy-pasteable `helm install …` command. Install/uninstall actions from the UI will land in a later release.
 
-Built from the [`openeverest/generic-plugin-template`](https://github.com/openeverest/generic-plugin-template) and following the [Generic Plugins Architecture Design](https://github.com/openeverest/openeverest/blob/main/docs/process/generic-plugins-design.md).
+Built from the [`openeverest/generic-plugin-template`](https://github.com/openeverest/generic-plugin-template) and following the [Generic Plugins spec (003)](https://github.com/openeverest/specs/blob/main/specs/003-generic-plugins.md).
 
 ## Install
 
