@@ -1,6 +1,6 @@
 import { h } from '../runtime';
 import { styles } from '../styles';
-import { defaultChannelVersion } from '../catalog';
+import { defaultChannelVersion, isVersionOutdated } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import type { CatalogEntry } from '../types';
 
@@ -62,8 +62,16 @@ export function Row(props: {
         entry.installed
           ? h(
               'span',
-              { style: styles.statusInstalled },
-              entry.installedVersion ? `Installed · ${entry.installedVersion}` : 'Installed',
+              {
+                style: isVersionOutdated(entry.installedVersion, version)
+                  ? styles.statusOutdated
+                  : styles.statusInstalled,
+              },
+              isVersionOutdated(entry.installedVersion, version)
+                ? `Update available · ${entry.installedVersion} → ${version}`
+                : entry.installedVersion
+                ? `Installed · ${entry.installedVersion}`
+                : 'Installed',
             )
           : null,
       ),

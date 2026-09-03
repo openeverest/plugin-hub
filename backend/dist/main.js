@@ -1,567 +1,758 @@
-let p, S;
-const e = (l, t, ...r) => p.createElement(l, t, ...r), n = {
-  page: { padding: "1.5rem", maxWidth: 1280, margin: "0 auto" },
-  headerRow: {
-    display: "flex",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: "1rem",
-    marginBottom: "1rem",
-    flexWrap: "wrap"
-  },
-  title: { margin: 0, fontSize: "1.5rem", fontWeight: 600 },
-  subtitle: { margin: 0, color: "#6b7280", fontSize: "0.875rem" },
-  toolbar: {
-    display: "flex",
-    gap: "0.75rem",
-    alignItems: "center",
-    flexWrap: "wrap",
-    padding: "0.75rem 1rem",
-    background: "#f9fafb",
-    border: "1px solid #e5e7eb",
-    borderRadius: 8,
-    marginBottom: "1rem"
-  },
-  input: {
-    flex: "1 1 240px",
-    minWidth: 200,
-    padding: "0.5rem 0.75rem",
-    fontSize: "0.875rem",
-    border: "1px solid #d1d5db",
-    borderRadius: 6,
-    background: "#fff"
-  },
-  chipGroup: { display: "flex", gap: "0.25rem" },
-  chip: (l) => ({
-    padding: "0.4rem 0.75rem",
-    fontSize: "0.8125rem",
-    border: "1px solid " + (l ? "#1f2937" : "#d1d5db"),
-    background: l ? "#1f2937" : "#fff",
-    color: l ? "#fff" : "#374151",
-    borderRadius: 999,
-    cursor: "pointer"
-  }),
-  checkboxRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.4rem",
-    fontSize: "0.875rem",
-    color: "#374151",
-    cursor: "pointer"
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    background: "#fff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 8,
-    overflow: "hidden"
-  },
-  th: {
-    textAlign: "left",
-    padding: "0.75rem 1rem",
-    fontSize: "0.75rem",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    color: "#6b7280",
-    background: "#f9fafb",
-    borderBottom: "1px solid #e5e7eb"
-  },
-  td: {
-    padding: "0.75rem 1rem",
-    fontSize: "0.875rem",
-    borderBottom: "1px solid #f3f4f6",
-    verticalAlign: "top"
-  },
-  iconCell: { width: 40, padding: "0.75rem", textAlign: "center" },
-  iconImg: { width: 28, height: 28, objectFit: "contain" },
-  statusInstalled: {
-    display: "inline-block",
-    padding: "0.15rem 0.55rem",
-    background: "#dcfce7",
-    color: "#166534",
-    borderRadius: 999,
-    fontSize: "0.75rem",
-    fontWeight: 600
-  },
-  statusAvailable: {
-    display: "inline-block",
-    padding: "0.15rem 0.55rem",
-    background: "#e5e7eb",
-    color: "#374151",
-    borderRadius: 999,
-    fontSize: "0.75rem",
-    fontWeight: 600
-  },
-  typeChip: (l) => ({
-    display: "inline-block",
-    padding: "0.15rem 0.55rem",
-    background: l === "provider" ? "#dbeafe" : "#ede9fe",
-    color: l === "provider" ? "#1e3a8a" : "#5b21b6",
-    borderRadius: 999,
-    fontSize: "0.75rem",
-    fontWeight: 600,
-    textTransform: "capitalize"
-  }),
-  categoryTag: {
-    display: "inline-block",
-    padding: "0.1rem 0.5rem",
-    fontSize: "0.7rem",
-    background: "#f3f4f6",
-    color: "#4b5563",
-    borderRadius: 4,
-    marginRight: 4
-  },
-  refreshBtn: {
-    padding: "0.4rem 0.9rem",
-    fontSize: "0.8125rem",
-    border: "1px solid #d1d5db",
-    background: "#fff",
-    color: "#374151",
-    borderRadius: 6,
-    cursor: "pointer"
-  },
-  empty: {
-    padding: "3rem",
-    textAlign: "center",
-    color: "#6b7280"
-  },
-  errorBox: {
-    padding: "0.75rem 1rem",
-    background: "#fee2e2",
-    color: "#991b1b",
-    border: "1px solid #fecaca",
-    borderRadius: 6,
-    marginBottom: "1rem",
-    fontSize: "0.875rem"
-  },
-  warnBox: {
-    padding: "0.6rem 1rem",
-    background: "#fef3c7",
-    color: "#92400e",
-    border: "1px solid #fde68a",
-    borderRadius: 6,
-    marginBottom: "1rem",
-    fontSize: "0.8125rem"
-  },
-  drawerBackdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(15, 23, 42, 0.4)",
-    zIndex: 1e3,
-    display: "flex",
-    justifyContent: "flex-end"
-  },
-  drawer: {
-    width: "min(560px, 100%)",
-    height: "100%",
-    background: "#fff",
-    boxShadow: "-4px 0 24px rgba(0, 0, 0, 0.15)",
-    overflowY: "auto",
-    padding: "1.5rem",
-    boxSizing: "border-box"
-  },
-  drawerHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.75rem",
-    marginBottom: "1rem"
-  },
-  closeBtn: {
-    marginLeft: "auto",
-    border: "none",
-    background: "transparent",
-    fontSize: "1.5rem",
-    cursor: "pointer",
-    color: "#6b7280"
-  },
-  section: { marginTop: "1.25rem" },
-  sectionTitle: {
-    margin: "0 0 0.5rem",
-    fontSize: "0.75rem",
-    textTransform: "uppercase",
-    color: "#6b7280",
-    letterSpacing: "0.05em"
-  },
-  codeBlock: {
-    background: "#0f172a",
-    color: "#e2e8f0",
-    padding: "0.75rem 1rem",
-    borderRadius: 6,
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: "0.8125rem",
-    whiteSpace: "pre",
-    overflowX: "auto"
-  }
-}, x = "/v1/plugins/plugin-hub/icon.png";
-async function C() {
-  const l = await S("/api/summary");
-  if (!l.ok) {
-    const t = await l.text().catch(() => "");
-    throw new Error(t || `HTTP ${l.status}`);
-  }
-  return l.json();
+//#region src/runtime.ts
+var e, t;
+function n(n) {
+	e = n.React, t = n.fetch.bind(n);
 }
-function R(l, t) {
-  if (t.type !== "all" && l.type !== t.type || t.installedOnly && !l.installed) return !1;
-  if (t.query) {
-    const r = t.query.toLowerCase();
-    if (![
-      l.name,
-      l.displayName ?? "",
-      l.description ?? "",
-      (l.categories ?? []).join(" "),
-      (l.keywords ?? []).join(" ")
-    ].join(" ").toLowerCase().includes(r)) return !1;
-  }
-  return !0;
-}
-function w(l) {
-  var a, o, d;
-  const t = (a = l.artifacts) == null ? void 0 : a.chart;
-  if (!t) return null;
-  const r = t.defaultChannel ?? Object.keys(t.channels ?? {})[0];
-  return r ? ((d = (o = t.channels) == null ? void 0 : o[r]) == null ? void 0 : d.version) ?? null : null;
-}
-function z(l) {
-  var s, f, g, y, i, b, h, m, v;
-  const t = (s = l.artifacts) == null ? void 0 : s.chart, r = (t == null ? void 0 : t.defaultChannel) ?? Object.keys((t == null ? void 0 : t.channels) ?? {})[0] ?? "", a = ((g = (f = t == null ? void 0 : t.channels) == null ? void 0 : f[r]) == null ? void 0 : g.ref) ?? "<chart-ref>", o = ((i = (y = t == null ? void 0 : t.channels) == null ? void 0 : y[r]) == null ? void 0 : i.version) ?? "<version>", d = ((h = (b = l.install) == null ? void 0 : b.helm) == null ? void 0 : h.releaseName) ?? l.name, u = ((v = (m = l.install) == null ? void 0 : m.helm) == null ? void 0 : v.namespace) ?? "everest-system";
-  return [
-    `helm install ${d} ${a} \\`,
-    `  --version ${o} \\`,
-    `  -n ${u}`
-  ].join(`
-`);
-}
-function B(l) {
-  const { filter: t, onChange: r, onRefresh: a, refreshing: o, lastRefreshed: d } = l, u = [
-    { key: "all", label: "All" },
-    { key: "plugin", label: "Plugins" },
-    { key: "provider", label: "Providers" }
-  ];
-  return e(
-    "div",
-    { style: n.toolbar },
-    e("input", {
-      type: "search",
-      placeholder: "Search by name, description, category…",
-      value: t.query,
-      style: n.input,
-      onChange: (s) => r({ ...t, query: s.target.value })
-    }),
-    e(
-      "div",
-      { style: n.chipGroup },
-      ...u.map(
-        (s) => e(
-          "button",
-          {
-            key: s.key,
-            type: "button",
-            style: n.chip(t.type === s.key),
-            onClick: () => r({ ...t, type: s.key })
-          },
-          s.label
-        )
-      )
-    ),
-    e(
-      "label",
-      { style: n.checkboxRow },
-      e("input", {
-        type: "checkbox",
-        checked: t.installedOnly,
-        onChange: (s) => r({ ...t, installedOnly: s.target.checked })
-      }),
-      "Installed only"
-    ),
-    e(
-      "button",
-      {
-        type: "button",
-        style: n.refreshBtn,
-        onClick: a,
-        disabled: o
-      },
-      o ? "Refreshing…" : "Refresh"
-    ),
-    d ? e(
-      "span",
-      { style: { fontSize: "0.75rem", color: "#6b7280" } },
-      `Updated ${d.toLocaleTimeString()}`
-    ) : null
-  );
-}
-function T(l) {
-  const { entry: t, onSelect: r } = l, a = w(t);
-  return e(
-    "tr",
-    {
-      key: t.name,
-      style: { cursor: "pointer" },
-      onClick: () => r(t)
-    },
-    e(
-      "td",
-      { style: { ...n.td, ...n.iconCell } },
-      e("img", {
-        src: t.icon || x,
-        alt: "",
-        style: n.iconImg,
-        onError: (o) => {
-          o.currentTarget.src = x;
-        }
-      })
-    ),
-    e(
-      "td",
-      { style: n.td },
-      e("div", { style: { fontWeight: 600 } }, t.displayName || t.name),
-      e(
-        "div",
-        { style: { color: "#6b7280", fontSize: "0.8125rem", marginTop: 2 } },
-        t.name
-      )
-    ),
-    e("td", { style: n.td }, e("span", { style: n.typeChip(t.type) }, t.type)),
-    e("td", { style: n.td }, a ?? "—"),
-    e(
-      "td",
-      { style: n.td },
-      ...(t.categories ?? []).map(
-        (o) => e("span", { key: o, style: n.categoryTag }, o)
-      )
-    ),
-    e(
-      "td",
-      { style: n.td },
-      t.installed ? e(
-        "span",
-        { style: n.statusInstalled },
-        t.installedVersion ? `Installed · ${t.installedVersion}` : "Installed"
-      ) : e("span", { style: n.statusAvailable }, "Available")
-    )
-  );
-}
-function I(l) {
-  var f, g, y;
-  const { entry: t, onClose: r } = l, a = w(t), o = z(t), d = ((f = t.plugin) == null ? void 0 : f.extensionPoints) ?? [], u = ((g = t.provider) == null ? void 0 : g.supportedEngines) ?? [], s = t.maintainers ?? [];
-  return e(
-    "div",
-    { style: n.drawerBackdrop, onClick: r },
-    e(
-      "div",
-      {
-        style: n.drawer,
-        onClick: (i) => i.stopPropagation()
-      },
-      e(
-        "div",
-        { style: n.drawerHeader },
-        e("img", { src: t.icon || x, alt: "", style: { width: 40, height: 40 } }),
-        e(
-          "div",
-          null,
-          e(
-            "h2",
-            { style: { margin: 0, fontSize: "1.25rem", fontWeight: 600 } },
-            t.displayName || t.name
-          ),
-          e(
-            "div",
-            { style: { color: "#6b7280", fontSize: "0.8125rem" } },
-            t.name,
-            " · ",
-            e("span", { style: n.typeChip(t.type) }, t.type)
-          )
-        ),
-        e("button", { type: "button", style: n.closeBtn, onClick: r }, "×")
-      ),
-      t.installed ? e(
-        "div",
-        { style: { marginBottom: "1rem" } },
-        e(
-          "span",
-          { style: n.statusInstalled },
-          t.installedVersion ? `Installed · ${t.installedVersion}` : "Installed"
-        ),
-        t.installedPhase ? e(
-          "span",
-          { style: { marginLeft: 8, color: "#6b7280", fontSize: "0.8125rem" } },
-          `Phase: ${t.installedPhase}`
-        ) : null
-      ) : e("div", { style: { marginBottom: "1rem" } }, e("span", { style: n.statusAvailable }, "Available")),
-      t.description ? e(
-        "p",
-        { style: { color: "#374151", whiteSpace: "pre-line" } },
-        t.description
-      ) : null,
-      e(
-        "div",
-        { style: n.section },
-        e("h3", { style: n.sectionTitle }, "Metadata"),
-        e(
-          "div",
-          { style: { fontSize: "0.875rem", lineHeight: 1.7 } },
-          a ? e("div", null, e("b", null, "Version: "), a) : null,
-          (y = t.compatibility) != null && y.openeverest ? e("div", null, e("b", null, "Requires OpenEverest: "), t.compatibility.openeverest) : null,
-          t.license ? e("div", null, e("b", null, "License: "), t.license) : null,
-          t.verified ? e("div", null, e("b", null, "Verified: "), "yes") : null
-        )
-      ),
-      d.length ? e(
-        "div",
-        { style: n.section },
-        e("h3", { style: n.sectionTitle }, "Extension points"),
-        e(
-          "div",
-          null,
-          ...d.map((i) => e("span", { key: i, style: n.categoryTag }, i))
-        )
-      ) : null,
-      u.length ? e(
-        "div",
-        { style: n.section },
-        e("h3", { style: n.sectionTitle }, "Supported engines"),
-        e(
-          "div",
-          null,
-          ...u.map((i) => e("span", { key: i, style: n.categoryTag }, i))
-        )
-      ) : null,
-      s.length ? e(
-        "div",
-        { style: n.section },
-        e("h3", { style: n.sectionTitle }, "Maintainers"),
-        e(
-          "ul",
-          { style: { margin: 0, paddingLeft: "1.25rem", fontSize: "0.875rem" } },
-          ...s.map(
-            (i, b) => e("li", { key: b }, i.name || i.github || i.email || "unknown")
-          )
-        )
-      ) : null,
-      e(
-        "div",
-        { style: n.section },
-        e("h3", { style: n.sectionTitle }, "Install with Helm"),
-        e("pre", { style: n.codeBlock }, o)
-      ),
-      e(
-        "div",
-        { style: n.section },
-        e(
-          "div",
-          { style: { display: "flex", gap: "0.75rem", flexWrap: "wrap" } },
-          t.sourceRepo ? e(
-            "a",
-            { href: t.sourceRepo, target: "_blank", rel: "noopener noreferrer" },
-            "Source repository ↗"
-          ) : null,
-          t.homepage ? e(
-            "a",
-            { href: t.homepage, target: "_blank", rel: "noopener noreferrer" },
-            "Homepage ↗"
-          ) : null
-        )
-      )
-    )
-  );
-}
-const E = (l) => {
-  const [t, r] = p.useState(null), [a, o] = p.useState(null), [d, u] = p.useState(!0), [s, f] = p.useState(null), [g, y] = p.useState({
-    query: "",
-    type: "all",
-    installedOnly: !1
-  }), [i, b] = p.useState(null), h = p.useCallback(() => {
-    u(!0), o(null), C().then((c) => {
-      r(c), f(/* @__PURE__ */ new Date());
-    }).catch((c) => o(c.message)).finally(() => u(!1));
-  }, []);
-  p.useEffect(() => {
-    h();
-  }, [h]);
-  const m = (t == null ? void 0 : t.extensions) ?? [], v = m.filter((c) => R(c, g)), k = {
-    total: m.length,
-    plugin: m.filter((c) => c.type === "plugin").length,
-    provider: m.filter((c) => c.type === "provider").length,
-    installed: m.filter((c) => c.installed).length
-  };
-  return e(
-    "div",
-    { style: n.page },
-    e(
-      "div",
-      { style: n.headerRow },
-      e(
-        "div",
-        null,
-        e("h1", { style: n.title }, "Plugin Hub"),
-        e(
-          "p",
-          { style: n.subtitle },
-          `Browse OpenEverest plugins and providers. ${k.total} available · ${k.installed} installed.`
-        )
-      ),
-      l.pluginName ? e(
-        "span",
-        { style: { fontSize: "0.75rem", color: "#9ca3af" } },
-        `plugin: ${l.pluginName}`
-      ) : null
-    ),
-    a ? e("div", { style: n.errorBox }, `Failed to load catalog: ${a}`) : null,
-    t != null && t.stale ? e(
-      "div",
-      { style: n.warnBox },
-      "Showing cached catalog — upstream hub index is currently unreachable."
-    ) : null,
-    t != null && t.installedError ? e(
-      "div",
-      { style: n.warnBox },
-      `Could not load installed extensions: ${t.installedError}. Showing catalog without install status.`
-    ) : null,
-    e(B, {
-      filter: g,
-      onChange: y,
-      onRefresh: h,
-      refreshing: d,
-      lastRefreshed: s
-    }),
-    d && !t ? e("div", { style: n.empty }, "Loading catalog…") : v.length === 0 ? e(
-      "div",
-      { style: n.empty },
-      m.length === 0 ? "No extensions in the catalog." : "No extensions match the current filters."
-    ) : e(
-      "table",
-      { style: n.table },
-      e(
-        "thead",
-        null,
-        e(
-          "tr",
-          null,
-          e("th", { style: { ...n.th, ...n.iconCell } }, ""),
-          e("th", { style: n.th }, "Name"),
-          e("th", { style: n.th }, "Type"),
-          e("th", { style: n.th }, "Version"),
-          e("th", { style: n.th }, "Categories"),
-          e("th", { style: n.th }, "Status")
-        )
-      ),
-      e("tbody", null, ...v.map((c) => T({ entry: c, onSelect: b })))
-    ),
-    i ? e(I, { entry: i, onClose: () => b(null) }) : null
-  );
-}, $ = (l) => {
-  p = l.React, S = l.fetch.bind(l), l.registerExtension({
-    type: "sidebarItem",
-    label: "Plugin Hub"
-  }), l.registerExtension({
-    type: "route",
-    label: "Plugin Hub",
-    component: E
-  });
+var r = (t, n, ...r) => e.createElement(t, n, ...r), i = {
+	page: {
+		padding: "1.5rem",
+		maxWidth: 1280,
+		margin: "0 auto"
+	},
+	headerRow: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: "1rem",
+		marginBottom: "1rem",
+		flexWrap: "wrap"
+	},
+	title: {
+		margin: 0,
+		fontSize: "1.5rem",
+		fontWeight: 600
+	},
+	subtitle: {
+		margin: 0,
+		color: "#6b7280",
+		fontSize: "0.875rem"
+	},
+	toolbar: {
+		display: "flex",
+		gap: "0.75rem",
+		alignItems: "center",
+		flexWrap: "wrap",
+		padding: "0.75rem 1rem",
+		background: "#f9fafb",
+		border: "1px solid #e5e7eb",
+		borderRadius: 8,
+		marginBottom: "1rem"
+	},
+	input: {
+		flex: "1 1 240px",
+		minWidth: 200,
+		padding: "0.5rem 0.75rem",
+		fontSize: "0.875rem",
+		border: "1px solid #d1d5db",
+		borderRadius: 6,
+		background: "#fff"
+	},
+	chipGroup: {
+		display: "flex",
+		gap: "0.25rem"
+	},
+	chip: (e) => ({
+		padding: "0.4rem 0.75rem",
+		fontSize: "0.8125rem",
+		border: "1px solid " + (e ? "#1f2937" : "#d1d5db"),
+		background: e ? "#1f2937" : "#fff",
+		color: e ? "#fff" : "#374151",
+		borderRadius: 999,
+		cursor: "pointer"
+	}),
+	checkboxRow: {
+		display: "flex",
+		alignItems: "center",
+		gap: "0.4rem",
+		fontSize: "0.875rem",
+		color: "#374151",
+		cursor: "pointer"
+	},
+	table: {
+		width: "100%",
+		borderCollapse: "collapse",
+		background: "#fff",
+		border: "1px solid #e5e7eb",
+		borderRadius: 8,
+		overflow: "hidden"
+	},
+	th: {
+		textAlign: "left",
+		padding: "0.75rem 1rem",
+		fontSize: "0.75rem",
+		textTransform: "uppercase",
+		letterSpacing: "0.05em",
+		color: "#6b7280",
+		background: "#f9fafb",
+		borderBottom: "1px solid #e5e7eb"
+	},
+	td: {
+		padding: "0.75rem 1rem",
+		fontSize: "0.875rem",
+		borderBottom: "1px solid #f3f4f6",
+		verticalAlign: "top"
+	},
+	iconCell: {
+		width: 40,
+		padding: "0.75rem",
+		textAlign: "center"
+	},
+	iconImg: {
+		width: 28,
+		height: 28,
+		objectFit: "contain"
+	},
+	statusInstalled: {
+		display: "inline-block",
+		padding: "0.15rem 0.55rem",
+		background: "#dcfce7",
+		color: "#166534",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600
+	},
+	statusOutdated: {
+		display: "inline-block",
+		padding: "0.15rem 0.55rem",
+		background: "#fef3c7",
+		color: "#92400e",
+		border: "1px solid #fde68a",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600
+	},
+	statusAvailable: {
+		display: "inline-block",
+		padding: "0.15rem 0.55rem",
+		background: "#e5e7eb",
+		color: "#374151",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600
+	},
+	maturityChip: (e) => {
+		let t = (e || "unknown").toLowerCase(), n = {
+			alpha: {
+				bg: "#ffedd5",
+				fg: "#9a3412"
+			},
+			beta: {
+				bg: "#dbeafe",
+				fg: "#1e3a8a"
+			},
+			stable: {
+				bg: "#dcfce7",
+				fg: "#166534"
+			},
+			ga: {
+				bg: "#dcfce7",
+				fg: "#166534"
+			},
+			deprecated: {
+				bg: "#fee2e2",
+				fg: "#991b1b"
+			},
+			unknown: {
+				bg: "#e5e7eb",
+				fg: "#374151"
+			}
+		}, r = n[t] ?? n.unknown;
+		return {
+			display: "inline-block",
+			padding: "0.15rem 0.55rem",
+			background: r.bg,
+			color: r.fg,
+			borderRadius: 999,
+			fontSize: "0.75rem",
+			fontWeight: 600,
+			textTransform: "capitalize"
+		};
+	},
+	gatedChip: {
+		display: "inline-block",
+		padding: "0.15rem 0.55rem",
+		background: "#ede9fe",
+		color: "#5b21b6",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600
+	},
+	capChipYes: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: 4,
+		padding: "0.15rem 0.55rem",
+		background: "#dcfce7",
+		color: "#166534",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600,
+		marginRight: 6,
+		marginBottom: 6
+	},
+	capChipNo: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: 4,
+		padding: "0.15rem 0.55rem",
+		background: "#f3f4f6",
+		color: "#9ca3af",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600,
+		marginRight: 6,
+		marginBottom: 6,
+		textDecoration: "line-through"
+	},
+	capRow: {
+		display: "flex",
+		gap: "0.5rem",
+		alignItems: "baseline",
+		marginBottom: 4,
+		flexWrap: "wrap",
+		fontSize: "0.875rem"
+	},
+	capKey: {
+		color: "#6b7280",
+		fontWeight: 500,
+		minWidth: 120
+	},
+	typeChip: (e) => ({
+		display: "inline-block",
+		padding: "0.15rem 0.55rem",
+		background: e === "provider" ? "#dbeafe" : "#ede9fe",
+		color: e === "provider" ? "#1e3a8a" : "#5b21b6",
+		borderRadius: 999,
+		fontSize: "0.75rem",
+		fontWeight: 600,
+		textTransform: "capitalize"
+	}),
+	categoryTag: {
+		display: "inline-block",
+		padding: "0.1rem 0.5rem",
+		fontSize: "0.7rem",
+		background: "#f3f4f6",
+		color: "#4b5563",
+		borderRadius: 4,
+		marginRight: 4
+	},
+	refreshBtn: {
+		padding: "0.4rem 0.9rem",
+		fontSize: "0.8125rem",
+		border: "1px solid #d1d5db",
+		background: "#fff",
+		color: "#374151",
+		borderRadius: 6,
+		cursor: "pointer"
+	},
+	ctaBtn: {
+		padding: "0.5rem 1rem",
+		fontSize: "0.875rem",
+		fontWeight: 500,
+		border: "1px solid #2563eb",
+		background: "#2563eb",
+		color: "#fff",
+		borderRadius: 6,
+		cursor: "pointer",
+		textDecoration: "none",
+		display: "inline-block"
+	},
+	ctaLink: {
+		fontSize: "0.8125rem",
+		color: "#6b7280",
+		textDecoration: "none"
+	},
+	headerActions: {
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "flex-end",
+		gap: "0.375rem"
+	},
+	empty: {
+		padding: "3rem",
+		textAlign: "center",
+		color: "#6b7280"
+	},
+	errorBox: {
+		padding: "0.75rem 1rem",
+		background: "#fee2e2",
+		color: "#991b1b",
+		border: "1px solid #fecaca",
+		borderRadius: 6,
+		marginBottom: "1rem",
+		fontSize: "0.875rem"
+	},
+	warnBox: {
+		padding: "0.6rem 1rem",
+		background: "#fef3c7",
+		color: "#92400e",
+		border: "1px solid #fde68a",
+		borderRadius: 6,
+		marginBottom: "1rem",
+		fontSize: "0.8125rem"
+	},
+	drawerBackdrop: {
+		position: "fixed",
+		right: 0,
+		bottom: 0,
+		left: 0,
+		background: "rgba(15, 23, 42, 0.4)",
+		zIndex: 1200,
+		display: "flex",
+		justifyContent: "flex-end"
+	},
+	drawer: {
+		width: "min(560px, 100%)",
+		height: "100%",
+		background: "#fff",
+		boxShadow: "-4px 0 24px rgba(0, 0, 0, 0.15)",
+		overflowY: "auto",
+		padding: "1.5rem",
+		boxSizing: "border-box"
+	},
+	drawerHeader: {
+		display: "flex",
+		alignItems: "center",
+		gap: "0.75rem",
+		marginBottom: "1rem"
+	},
+	closeBtn: {
+		marginLeft: "auto",
+		border: "none",
+		background: "transparent",
+		fontSize: "1.5rem",
+		cursor: "pointer",
+		color: "#6b7280"
+	},
+	section: { marginTop: "1.25rem" },
+	sectionTitle: {
+		margin: "0 0 0.5rem",
+		fontSize: "0.75rem",
+		textTransform: "uppercase",
+		color: "#6b7280",
+		letterSpacing: "0.05em"
+	},
+	codeBlock: {
+		background: "#0f172a",
+		color: "#e2e8f0",
+		padding: "0.75rem 1rem",
+		borderRadius: 6,
+		fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+		fontSize: "0.8125rem",
+		whiteSpace: "pre",
+		overflowX: "auto"
+	}
 };
-export {
-  $ as default
+//#endregion
+//#region src/data.ts
+async function a() {
+	let e = await t("/api/catalog");
+	if (!e.ok) {
+		let t = await e.text().catch(() => "");
+		throw Error(t || `HTTP ${e.status}`);
+	}
+	return {
+		...await e.json(),
+		stale: e.headers.get("X-Hub-Stale") === "true"
+	};
+}
+async function o() {
+	let e = await t("/api/installed");
+	if (!e.ok) {
+		let t = await e.text().catch(() => "");
+		throw Error(t || `HTTP ${e.status}`);
+	}
+	return e.json();
+}
+function s(e, t) {
+	return `${e}:${t}`;
+}
+//#endregion
+//#region src/catalog.ts
+function c(e, t) {
+	if (t.type !== "all" && e.type !== t.type || t.installedOnly && !e.installed || t.hideGated && e.access === "gated") return !1;
+	if (t.query) {
+		let n = t.query.toLowerCase();
+		if (![
+			e.name,
+			e.displayName ?? "",
+			e.description ?? "",
+			(e.categories ?? []).join(" "),
+			(e.keywords ?? []).join(" ")
+		].join(" ").toLowerCase().includes(n)) return !1;
+	}
+	return !0;
+}
+function l(e) {
+	let t = e.artifacts?.chart;
+	if (!t) return null;
+	let n = t.defaultChannel ?? Object.keys(t.channels ?? {})[0];
+	return n ? t.channels?.[n]?.version ?? null : null;
+}
+function u(e) {
+	let t = e.artifacts?.chart, n = t?.defaultChannel ?? Object.keys(t?.channels ?? {})[0] ?? "", r = t?.channels?.[n]?.ref ?? "<chart-ref>", i = t?.channels?.[n]?.version ?? "<version>", a = e.install?.helm?.releaseName ?? e.name, o = e.install?.helm?.namespace ?? "everest-system";
+	return [
+		`helm install ${a} ${r} \\`,
+		`  --version ${i} \\`,
+		`  -n ${o}`
+	].join("\n");
+}
+function d(e) {
+	let [t, ...n] = e.trim().replace(/^v/i, "").split("+")[0].split("-");
+	return {
+		numbers: t.split(".").map((e) => parseInt(e, 10) || 0),
+		prerelease: n.length > 0 ? n.join("-").split(".") : null
+	};
+}
+function f(e, t) {
+	let n = d(e), r = d(t), i = Math.max(n.numbers.length, r.numbers.length);
+	for (let e = 0; e < i; e++) {
+		let t = n.numbers[e] || 0, i = r.numbers[e] || 0;
+		if (t < i) return -1;
+		if (t > i) return 1;
+	}
+	if (!n.prerelease && r.prerelease) return 1;
+	if (n.prerelease && !r.prerelease) return -1;
+	if (!n.prerelease && !r.prerelease) return 0;
+	let a = n.prerelease, o = r.prerelease, s = Math.max(a.length, o.length);
+	for (let e = 0; e < s; e++) {
+		let t = a[e], n = o[e];
+		if (t === void 0) return -1;
+		if (n === void 0) return 1;
+		let r = /^\d+$/.test(t), i = /^\d+$/.test(n);
+		if (r && i) {
+			let e = parseInt(t, 10), r = parseInt(n, 10);
+			if (e < r) return -1;
+			if (e > r) return 1;
+		} else if (r && !i) return -1;
+		else if (!r && i) return 1;
+		else {
+			let e = t.localeCompare(n);
+			if (e !== 0) return e < 0 ? -1 : 1;
+		}
+	}
+	return 0;
+}
+function p(e, t) {
+	return !e || !t ? !1 : f(e, t) < 0;
+}
+function m(e) {
+	let t = e.artifacts?.chart, n = t?.defaultChannel ?? Object.keys(t?.channels ?? {})[0] ?? "", r = t?.channels?.[n]?.ref ?? "<chart-ref>", i = t?.channels?.[n]?.version ?? "<version>", a = e.install?.helm?.releaseName ?? e.name, o = e.install?.helm?.namespace ?? "everest-system";
+	return [
+		`helm upgrade ${a} ${r} \\`,
+		`  --version ${i} \\`,
+		`  -n ${o}`
+	].join("\n");
+}
+//#endregion
+//#region src/components/Toolbar.ts
+function h(e) {
+	let { filter: t, onChange: n, onRefresh: a, refreshing: o, lastRefreshed: s } = e;
+	return r("div", { style: i.toolbar }, r("input", {
+		type: "search",
+		placeholder: "Search by name, description, category…",
+		value: t.query,
+		style: i.input,
+		onChange: (e) => n({
+			...t,
+			query: e.target.value
+		})
+	}), r("div", { style: i.chipGroup }, ...[
+		{
+			key: "all",
+			label: "All"
+		},
+		{
+			key: "plugin",
+			label: "Plugins"
+		},
+		{
+			key: "provider",
+			label: "Providers"
+		}
+	].map((e) => r("button", {
+		key: e.key,
+		type: "button",
+		style: i.chip(t.type === e.key),
+		onClick: () => n({
+			...t,
+			type: e.key
+		})
+	}, e.label))), r("label", { style: i.checkboxRow }, r("input", {
+		type: "checkbox",
+		checked: t.installedOnly,
+		onChange: (e) => n({
+			...t,
+			installedOnly: e.target.checked
+		})
+	}), "Installed only"), r("label", { style: i.checkboxRow }, r("input", {
+		type: "checkbox",
+		checked: !t.hideGated,
+		onChange: (e) => n({
+			...t,
+			hideGated: !e.target.checked
+		})
+	}), "Include gated"), r("button", {
+		type: "button",
+		style: i.refreshBtn,
+		onClick: a,
+		disabled: o
+	}, o ? "Refreshing…" : "Refresh"), s ? r("span", { style: {
+		fontSize: "0.75rem",
+		color: "#6b7280"
+	} }, `Updated ${s.toLocaleTimeString()}`) : null);
+}
+//#endregion
+//#region src/icons.ts
+var g = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%25239ca3af'%20stroke-width%3D'1.75'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'18'%20height%3D'18'%20rx%3D'3'%2F%3E%3Cpath%20d%3D'M3%209h18M9%203v18'%2F%3E%3C%2Fsvg%3E", _ = /* @__PURE__ */ new Set();
+function v(e, t) {
+	return e ? e.startsWith("data:") || e.startsWith("http://") || e.startsWith("https://") || e.startsWith("/") ? e : t ? `/v1/plugins/${t}/${e}` : g : g;
+}
+function y(e) {
+	return r("img", {
+		src: _.has(e.src) ? g : e.src,
+		alt: e.alt ?? "",
+		style: e.style,
+		onError: (t) => {
+			let n = t.currentTarget;
+			n.dataset.failed !== "1" && (n.dataset.failed = "1", _.add(e.src), n.src !== "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2024%2024'%20fill%3D'none'%20stroke%3D'%25239ca3af'%20stroke-width%3D'1.75'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%3E%3Crect%20x%3D'3'%20y%3D'3'%20width%3D'18'%20height%3D'18'%20rx%3D'3'%2F%3E%3Cpath%20d%3D'M3%209h18M9%203v18'%2F%3E%3C%2Fsvg%3E" && (n.src = g));
+		}
+	});
+}
+//#endregion
+//#region src/components/Row.ts
+function b(e) {
+	let { entry: t, pluginName: n, onSelect: a } = e, o = l(t);
+	return r("tr", {
+		key: t.name,
+		style: { cursor: "pointer" },
+		onClick: () => a(t)
+	}, r("td", { style: {
+		...i.td,
+		...i.iconCell
+	} }, r(y, {
+		src: v(t.icon, n),
+		style: i.iconImg
+	})), r("td", { style: i.td }, r("div", { style: { fontWeight: 600 } }, t.displayName || t.name), r("div", { style: {
+		color: "#6b7280",
+		fontSize: "0.8125rem",
+		marginTop: 2
+	} }, t.name)), r("td", { style: i.td }, r("span", { style: i.typeChip(t.type) }, t.type)), r("td", { style: i.td }, o ?? "—"), r("td", { style: i.td }, ...(t.categories ?? []).map((e) => r("span", {
+		key: e,
+		style: i.categoryTag
+	}, e))), r("td", { style: i.td }, r("div", { style: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 4,
+		alignItems: "flex-start"
+	} }, r("span", { style: i.maturityChip(t.maturity || "unknown") }, t.maturity || "unknown"), t.access === "gated" ? r("span", { style: i.gatedChip }, "Gated") : null, t.installed ? r("span", { style: p(t.installedVersion, o) ? i.statusOutdated : i.statusInstalled }, p(t.installedVersion, o) ? `Update available · ${t.installedVersion} → ${o}` : t.installedVersion ? `Installed · ${t.installedVersion}` : "Installed") : null)));
+}
+//#endregion
+//#region src/components/Drawer.ts
+function x(e) {
+	return e.replace(/[._-]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b\w/g, (e) => e.toUpperCase());
+}
+function S(e, t) {
+	let n = x(e);
+	return typeof t == "boolean" ? t ? r("span", {
+		key: e,
+		style: i.capChipYes
+	}, `\u2713 ${n}`) : r("span", {
+		key: e,
+		style: i.capChipNo
+	}, `\u2717 ${n}`) : Array.isArray(t) ? r("div", {
+		key: e,
+		style: i.capRow
+	}, r("span", { style: i.capKey }, n), r("div", null, ...t.map((e, t) => r("span", {
+		key: t,
+		style: i.categoryTag
+	}, String(e))))) : t == null ? null : typeof t == "object" ? r("div", {
+		key: e,
+		style: i.capRow
+	}, r("span", { style: i.capKey }, n), r("code", { style: {
+		fontSize: "0.8125rem",
+		color: "#374151"
+	} }, JSON.stringify(t))) : r("div", {
+		key: e,
+		style: i.capRow
+	}, r("span", { style: i.capKey }, n), r("span", { style: { color: "#111827" } }, String(t)));
+}
+function C(e) {
+	let t = Object.entries(e);
+	if (!t.length) return null;
+	let n = t.filter(([, e]) => typeof e == "boolean"), i = t.filter(([, e]) => typeof e != "boolean");
+	return r("div", null, n.length ? r("div", { style: { marginBottom: i.length ? "0.75rem" : 0 } }, ...n.map(([e, t]) => S(e, t))) : null, i.length ? r("div", null, ...i.map(([e, t]) => S(e, t))) : null);
+}
+function w() {
+	if (typeof document > "u") return 64;
+	let e = document.querySelector("header.MuiAppBar-root");
+	if (!e) return 64;
+	let t = Math.round(e.getBoundingClientRect().height);
+	return t > 0 ? t : 64;
+}
+function T() {
+	let [t, n] = e.useState(w);
+	return e.useEffect(() => {
+		let e = () => n(w());
+		return e(), window.addEventListener("resize", e), () => window.removeEventListener("resize", e);
+	}, []), t;
+}
+function E(e) {
+	let { entry: t, pluginName: n, onClose: a } = e, o = t.access === "gated", s = o ? null : l(t), c = o ? null : u(t), d = t.installed && p(t.installedVersion, s), f = d ? m(t) : null, h = t.plugin?.extensionPoints ?? [], g = t.provider?.supportedEngines ?? [], _ = t.maintainers ?? [], b = T();
+	return r("div", {
+		style: {
+			...i.drawerBackdrop,
+			top: b
+		},
+		onClick: a
+	}, r("div", {
+		style: i.drawer,
+		onClick: (e) => e.stopPropagation()
+	}, r("div", { style: i.drawerHeader }, r(y, {
+		src: v(t.icon, n),
+		style: {
+			width: 40,
+			height: 40
+		}
+	}), r("div", null, r("h2", { style: {
+		margin: 0,
+		fontSize: "1.25rem",
+		fontWeight: 600
+	} }, t.displayName || t.name), r("div", { style: {
+		color: "#6b7280",
+		fontSize: "0.8125rem"
+	} }, t.name, " · ", r("span", { style: i.typeChip(t.type) }, t.type), o ? r("span", { style: {
+		...i.gatedChip,
+		marginLeft: 6
+	} }, "Gated") : null)), r("button", {
+		type: "button",
+		style: i.closeBtn,
+		onClick: a
+	}, "×")), t.installed ? r("div", { style: { marginBottom: "1rem" } }, r("span", { style: i.statusInstalled }, t.installedVersion ? `Installed · ${t.installedVersion}` : "Installed"), t.installedPhase ? r("span", { style: {
+		marginLeft: 8,
+		color: "#6b7280",
+		fontSize: "0.8125rem"
+	} }, `Phase: ${t.installedPhase}`) : null) : null, t.description ? r("p", { style: {
+		color: "#374151",
+		whiteSpace: "pre-line"
+	} }, t.description) : null, r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Metadata"), r("div", { style: {
+		fontSize: "0.875rem",
+		lineHeight: 1.7
+	} }, s ? r("div", null, r("b", null, "Version: "), s) : null, t.maturity ? r("div", null, r("b", null, "Maturity: "), r("span", { style: i.maturityChip(t.maturity) }, t.maturity)) : null, t.compatibility?.openeverest ? r("div", null, r("b", null, "Requires OpenEverest: "), t.compatibility.openeverest) : null, t.license ? r("div", null, r("b", null, "License: "), t.license) : null, t.verified ? r("div", null, r("b", null, "Verified: "), "yes") : null)), h.length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Extension points"), r("div", null, ...h.map((e) => r("span", {
+		key: e,
+		style: i.categoryTag
+	}, e)))) : null, g.length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Supported engines"), r("div", null, ...g.map((e) => r("span", {
+		key: e,
+		style: i.categoryTag
+	}, e)))) : null, t.capabilities && Object.keys(t.capabilities).length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Capabilities"), C(t.capabilities)) : null, _.length ? r("div", { style: i.section }, r("h3", { style: i.sectionTitle }, "Maintainers"), r("ul", { style: {
+		margin: 0,
+		paddingLeft: "1.25rem",
+		fontSize: "0.875rem"
+	} }, ..._.map((e, t) => r("li", { key: t }, e.name || e.github || e.email || "unknown")))) : null, r("div", { style: i.section }, o ? r("div", null, r("h3", { style: i.sectionTitle }, "Access required"), r("p", { style: {
+		color: "#374151",
+		fontSize: "0.875rem",
+		marginTop: 0
+	} }, t.gated?.instructions || "This extension is not publicly available. Contact the vendor to request access."), t.gated?.provider ? r("p", { style: {
+		color: "#6b7280",
+		fontSize: "0.8125rem",
+		marginTop: "-0.5rem"
+	} }, `Provided by ${t.gated.provider}`) : null, t.gated?.contactUrl ? r("a", {
+		href: t.gated.contactUrl,
+		target: "_blank",
+		rel: "noopener noreferrer",
+		style: i.ctaBtn
+	}, "Contact vendor ↗") : r("div", { style: {
+		color: "#6b7280",
+		fontSize: "0.8125rem"
+	} }, "No contact URL configured. See the source repository for details.")) : d ? r("div", null, r("div", { style: i.warnBox }, `A newer version (${s}) is available. Currently installed: ${t.installedVersion}`), r("h3", { style: i.sectionTitle }, "Upgrade with Helm"), r("pre", { style: i.codeBlock }, f)) : r("div", null, r("h3", { style: i.sectionTitle }, "Install with Helm"), r("pre", { style: i.codeBlock }, c))), r("div", { style: i.section }, r("div", { style: {
+		display: "flex",
+		gap: "0.75rem",
+		flexWrap: "wrap"
+	} }, t.sourceRepo ? r("a", {
+		href: t.sourceRepo,
+		target: "_blank",
+		rel: "noopener noreferrer"
+	}, "Source repository ↗") : null, t.homepage ? r("a", {
+		href: t.homepage,
+		target: "_blank",
+		rel: "noopener noreferrer"
+	}, "Homepage ↗") : null))));
+}
+//#endregion
+//#region src/main.tsx
+var D = (t) => {
+	let [n, l] = e.useState(null), [u, d] = e.useState(null), [f, p] = e.useState(null), [m, g] = e.useState(null), [_, v] = e.useState(!0), [y, x] = e.useState(null), [S, C] = e.useState({
+		query: "",
+		type: "all",
+		installedOnly: !1,
+		hideGated: !1
+	}), [w, T] = e.useState(null), D = e.useCallback(() => {
+		v(!0), g(null), a().then((e) => {
+			l(e), x(/* @__PURE__ */ new Date());
+		}).catch((e) => g(e.message)).finally(() => v(!1)), d(null), p(null), o().then((e) => {
+			let t = /* @__PURE__ */ new Map();
+			for (let n of e.items ?? []) n?.name && t.set(s(n.type, n.name), n);
+			d(t), e.error && p(e.error);
+		}).catch((e) => {
+			d(/* @__PURE__ */ new Map()), p(e.message);
+		});
+	}, []);
+	e.useEffect(() => {
+		D();
+	}, [D]);
+	let O = u === null, k = e.useMemo(() => {
+		let e = n?.extensions ?? [];
+		return u ? e.map((e) => {
+			let t = u.get(s(e.type, e.name));
+			return {
+				...e,
+				installed: !!t,
+				installedVersion: t?.version || e.installedVersion
+			};
+		}) : e;
+	}, [n, u]), A = k.filter((e) => c(e, S)), j = {
+		total: k.length,
+		plugin: k.filter((e) => e.type === "plugin").length,
+		provider: k.filter((e) => e.type === "provider").length,
+		installed: k.filter((e) => e.installed).length
+	};
+	return r("div", { style: i.page }, r("div", { style: i.headerRow }, r("div", null, r("h1", { style: i.title }, "The Hub"), r("p", { style: i.subtitle }, `Browse OpenEverest plugins and providers. ${j.total} available · ${O ? "checking installed…" : `${j.installed} installed`}.`)), r("div", { style: i.headerActions }, r("a", {
+		href: "https://github.com/openeverest/hub",
+		target: "_blank",
+		rel: "noopener noreferrer",
+		style: i.ctaBtn
+	}, "Add extension"), r("a", {
+		href: "https://github.com/openeverest/openeverest/issues/",
+		target: "_blank",
+		rel: "noopener noreferrer",
+		style: i.ctaLink
+	}, "Need other tech? →"))), m ? r("div", { style: i.errorBox }, `Failed to load catalog: ${m}`) : null, n?.stale ? r("div", { style: i.warnBox }, "Showing cached catalog — upstream hub index is currently unreachable.") : null, f ? r("div", { style: i.warnBox }, `Could not load installed extensions: ${f}. Showing catalog without install status.`) : null, r(h, {
+		filter: S,
+		onChange: C,
+		onRefresh: D,
+		refreshing: _,
+		lastRefreshed: y
+	}), _ && !n ? r("div", { style: i.empty }, "Loading catalog…") : A.length === 0 ? r("div", { style: i.empty }, k.length === 0 ? "No extensions in the catalog." : "No extensions match the current filters.") : r("table", { style: i.table }, r("thead", null, r("tr", null, r("th", { style: {
+		...i.th,
+		...i.iconCell
+	} }, ""), r("th", { style: i.th }, "Name"), r("th", { style: i.th }, "Type"), r("th", { style: i.th }, "Version"), r("th", { style: i.th }, "Categories"), r("th", { style: i.th }, "Maturity"))), r("tbody", null, ...A.map((e) => b({
+		entry: e,
+		pluginName: t.pluginName,
+		onSelect: T
+	})))), w ? r(E, {
+		entry: w,
+		pluginName: t.pluginName,
+		onClose: () => T(null)
+	}) : null);
+}, O = (e) => {
+	n(e), e.registerExtension({
+		type: "sidebarItem",
+		label: "Plugin Hub"
+	}), e.registerExtension({
+		type: "route",
+		label: "Plugin Hub",
+		component: D
+	});
 };
+//#endregion
+export { O as default };
