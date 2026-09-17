@@ -192,9 +192,9 @@ func (c *catalogCache) fetchLocked() ([]byte, error) {
 // CSP that blocks those cross-origin image loads, so the backend rewrites
 // every absolute icon URL in the catalog/summary responses to a *relative*
 // path (e.g. `api/icon/<key>`). The frontend then prepends the plugin's
-// runtime mount prefix (`/v1/plugins/<pluginName>`) — derived from the
-// SDK-supplied pluginName — so the URL is always correct regardless of the
-// release name the chart was installed under.
+// runtime mount prefix (`/v1/clusters/<cluster>/plugins/<pluginName>`) —
+// derived from the SDK-supplied basePath — so the URL is always correct
+// regardless of the cluster or the release name the chart was installed under.
 //
 // Keys are SHA-256 of the upstream URL: stable, opaque, and content-addressed
 // by URL (no caller-supplied URL parameter, no SSRF surface). Only URLs that
@@ -418,16 +418,44 @@ func apiError(w http.ResponseWriter, status int, msg string) {
 // Handlers
 // ---------------------------------------------------------------------------
 
+// bundleData and bundleETag are computed once: the frontend is embedded, so it
+// never changes for the lifetime of the process (a new release ships a new
+// image, hence a new process with a new ETag).
+var (
+	bundleData    []byte
+	bundleDataErr error
+	bundleETag    string
+	bundleOnce    sync.Once
+)
+
+func loadBundle() {
+	bundleData, bundleDataErr = distFS.ReadFile("dist/main.js")
+	if bundleDataErr == nil {
+		sum := sha256.Sum256(bundleData)
+		bundleETag = `"` + hex.EncodeToString(sum[:]) + `"`
+	}
+}
+
 // handleBundle serves the dynamically loaded plugin frontend.
-func handleBundle(w http.ResponseWriter, _ *http.Request) {
-	data, err := distFS.ReadFile("dist/main.js")
-	if err != nil {
+//
+// The URL is stable (`main.js`), so we can't rely on a hashed filename to bust
+// the browser cache on release. Instead we serve a content-addressed ETag with
+// `no-cache`: the browser revalidates on every load and gets a cheap 304 when
+// the bundle is unchanged, but picks up a new release immediately.
+func handleBundle(w http.ResponseWriter, r *http.Request) {
+	bundleOnce.Do(loadBundle)
+	if bundleDataErr != nil {
 		http.Error(w, "bundle not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/javascript")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = w.Write(data)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", bundleETag)
+	if r.Header.Get("If-None-Match") == bundleETag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	_, _ = w.Write(bundleData)
 }
 
 // handleIcon serves the plugin's own sidebar icon (embedded asset).
@@ -463,8 +491,8 @@ func makeCatalogHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc 
 //   - GET /v1/clusters/{cluster}/providers — Kubernetes-style list, one item
 //     per installed Provider CR. The catalog name lives at metadata.name,
 //     the chart version at metadata.labels["app.kubernetes.io/version"].
-//   - GET /v1/plugins — flat list of host-registered generic plugins. Catalog
-//     name lives at .name, version at .version.
+//   - GET /v1/clusters/{cluster}/plugins — flat list of host-registered
+//     generic plugins. Catalog name lives at .name, version at .version.
 //
 // We surface a non-fatal error if either call fails so the UI can still show
 // partial state. A 404 on either endpoint is treated as "feature absent" and
@@ -482,7 +510,7 @@ func fetchInstalled(apiBase, cluster, authHeader string) ([]installedExtension, 
 	} else {
 		all = append(all, providers...)
 	}
-	if plugins, err := fetchPlugins(apiBase, authHeader); err != nil {
+	if plugins, err := fetchPlugins(apiBase, cluster, authHeader); err != nil {
 		errs = append(errs, "plugins: "+err.Error())
 	} else {
 		all = append(all, plugins...)
@@ -530,8 +558,8 @@ func fetchProviders(apiBase, cluster, authHeader string) ([]installedExtension, 
 	return out, nil
 }
 
-func fetchPlugins(apiBase, authHeader string) ([]installedExtension, error) {
-	body, err := everestGET(apiBase+"/v1/plugins", authHeader)
+func fetchPlugins(apiBase, cluster, authHeader string) ([]installedExtension, error) {
+	body, err := everestGET(apiBase+"/v1/clusters/"+url.PathEscape(cluster)+"/plugins", authHeader)
 	if err != nil {
 		return nil, err
 	}
