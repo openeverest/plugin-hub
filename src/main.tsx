@@ -25,7 +25,7 @@ import { matchesFilter } from './catalog';
 import { Toolbar } from './components/Toolbar';
 import { Row } from './components/Row';
 import { Drawer } from './components/Drawer';
-import type { CatalogEntry, FilterState, SummaryResponse } from './types';
+import type { CatalogEntry, FilterState, InstalledItem, SummaryResponse } from './types';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -33,7 +33,7 @@ import type { CatalogEntry, FilterState, SummaryResponse } from './types';
 
 const HubPage = (props: PluginRouteProps): any => {
   const [data, setData] = React.useState<SummaryResponse | null>(null);
-  const [installedKeys, setInstalledKeys] = React.useState<Set<string> | null>(null);
+  const [installedMap, setInstalledMap] = React.useState<Map<string, InstalledItem> | null>(null);
   const [installedError, setInstalledError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -60,19 +60,19 @@ const HubPage = (props: PluginRouteProps): any => {
 
     // Install status is loaded independently so a slow or failing everest API
     // never blocks the catalog. Labels fill in once this resolves.
-    setInstalledKeys(null);
+    setInstalledMap(null);
     setInstalledError(null);
     fetchInstalled()
       .then((res) => {
-        const keys = new Set<string>();
+        const map = new Map<string, InstalledItem>();
         for (const item of res.items ?? []) {
-          if (item?.name) keys.add(installedKey(item.type, item.name));
+          if (item?.name) map.set(installedKey(item.type, item.name), item);
         }
-        setInstalledKeys(keys);
+        setInstalledMap(map);
         if (res.error) setInstalledError(res.error);
       })
       .catch((err: Error) => {
-        setInstalledKeys(new Set());
+        setInstalledMap(new Map());
         setInstalledError(err.message);
       });
   }, []);
@@ -81,15 +81,19 @@ const HubPage = (props: PluginRouteProps): any => {
     load();
   }, [load]);
 
-  const installedLoading = installedKeys === null;
+  const installedLoading = installedMap === null;
   const entries = React.useMemo(() => {
     const raw = data?.extensions ?? [];
-    if (!installedKeys) return raw;
-    return raw.map((e) => ({
-      ...e,
-      installed: installedKeys.has(installedKey(e.type, e.name)),
-    }));
-  }, [data, installedKeys]);
+    if (!installedMap) return raw;
+    return raw.map((e) => {
+      const installed = installedMap.get(installedKey(e.type, e.name));
+      return {
+        ...e,
+        installed: !!installed,
+        installedVersion: installed?.version || e.installedVersion,
+      };
+    });
+  }, [data, installedMap]);
   const filtered = entries.filter((e) => matchesFilter(e, filter));
   const counts = {
     total: entries.length,

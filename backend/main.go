@@ -504,7 +504,8 @@ func fetchProviders(apiBase, cluster, authHeader string) ([]installedExtension, 
 	var payload struct {
 		Items []struct {
 			Metadata struct {
-				Name string `json:"name"`
+				Name   string            `json:"name"`
+				Labels map[string]string `json:"labels"`
 			} `json:"metadata"`
 		} `json:"items"`
 	}
@@ -516,9 +517,14 @@ func fetchProviders(apiBase, cluster, authHeader string) ([]installedExtension, 
 		if it.Metadata.Name == "" {
 			continue
 		}
+		version := ""
+		if it.Metadata.Labels != nil {
+			version = it.Metadata.Labels["app.kubernetes.io/version"]
+		}
 		out = append(out, installedExtension{
-			Name: it.Metadata.Name,
-			Type: "provider",
+			Name:    it.Metadata.Name,
+			Type:    "provider",
+			Version: version,
 		})
 	}
 	return out, nil
@@ -533,7 +539,8 @@ func fetchPlugins(apiBase, authHeader string) ([]installedExtension, error) {
 		return nil, nil
 	}
 	var items []struct {
-		Name string `json:"name"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
 	}
 	if err := json.Unmarshal(body, &items); err != nil {
 		return nil, fmt.Errorf("decode plugins: %w", err)
@@ -544,8 +551,9 @@ func fetchPlugins(apiBase, authHeader string) ([]installedExtension, error) {
 			continue
 		}
 		out = append(out, installedExtension{
-			Name: it.Name,
-			Type: "plugin",
+			Name:    it.Name,
+			Type:    "plugin",
+			Version: it.Version,
 		})
 	}
 	return out, nil
@@ -643,8 +651,11 @@ func makeSummaryHandler(cache *catalogCache, icons *iconProxy) http.HandlerFunc 
 			out.InstalledError = installedErr.Error()
 		}
 		for _, ext := range index.Extensions {
-			_, ok := installedByKey[ext.Type+":"+ext.Name]
+			ie, ok := installedByKey[ext.Type+":"+ext.Name]
 			ext.Installed = ok
+			if ok && ie.Version != "" {
+				ext.InstalledVersion = ie.Version
+			}
 			ext.Icon = icons.register(ext.Icon)
 			out.Extensions = append(out.Extensions, ext)
 		}
@@ -699,13 +710,11 @@ type extensionSummary struct {
 }
 
 // installedExtension is a normalized view of "something currently installed".
-// Type is "plugin" or "provider". We intentionally do not surface a version
-// — the upstream sources (helm chart appVersion label vs. plugin manifest
-// version) don't agree on a meaningful value, so the field would mislead more
-// than it helps.
+// Type is "plugin" or "provider".
 type installedExtension struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Version string `json:"version,omitempty"`
 }
 
 type summaryResponse struct {
