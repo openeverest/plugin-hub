@@ -7,10 +7,15 @@ import type { PluginApi } from '@openeverest/plugin-sdk';
 
 export let React: PluginApi['React'];
 export let pluginFetch: PluginApi['fetch'];
+// Proxy base the plugin is served under
+// (`/v1/clusters/{cluster}/plugins/{pluginName}`). Used to build asset URLs
+// that must be plain strings (e.g. <img src>) and so can't go through fetch.
+export let pluginBasePath: PluginApi['basePath'];
 
 export function initRuntime(api: PluginApi): void {
   React = api.React;
   pluginFetch = api.fetch.bind(api);
+  pluginBasePath = api.basePath;
 }
 
 // h is a thin React.createElement wrapper so components can be authored
