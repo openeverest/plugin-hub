@@ -218,7 +218,6 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
       open: true,
       onClose,
       PaperProps: {
-        'data-testid': 'plugin-hub-drawer',
         sx: {
           width: 'min(560px, 100%)',
           p: 3,
