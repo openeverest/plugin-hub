@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:mui-variant": "./scripts/build-mui-variant.sh",
     "preview": "vite preview --port 3001"
   },
   "dependencies": {
