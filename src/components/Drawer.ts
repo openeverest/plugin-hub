@@ -1,17 +1,25 @@
 import { h, React } from '../runtime';
 import { sx, maturityColor, typeColor } from '../styles';
-import { defaultChannelVersion, helmInstallCommand } from '../catalog';
+import {
+  defaultChannelVersion,
+  helmInstallCommand,
+  helmUpgradeCommand,
+  isVersionOutdated,
+} from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
+import { CodeBlock } from './CodeBlock';
 import {
   Drawer as MuiDrawer,
+  Alert,
   Box,
   Typography,
   Chip,
   IconButton,
   Link,
   Divider,
+  Paper,
 } from '@openeverest/ui-lib';
-import type { CatalogEntry } from '../types';
+import type { CatalogEntry, Prerequisite } from '../types';
 
 function humanizeKey(key: string): string {
   return key
@@ -70,6 +78,65 @@ function renderCapabilityValue(key: string, value: unknown): any {
     { key, sx: sx.capRow },
     h(Typography, { component: 'span', sx: sx.capKey }, label),
     h(Typography, { component: 'span', variant: 'body2' }, String(value))
+  );
+}
+
+function prerequisiteHelmCommand(pre: Prerequisite): string {
+  const helm = pre.helm!;
+  const release = pre.name;
+  const lines = [`helm install ${release} ${helm.oci} \\`];
+  if (helm.version) lines.push(`  --version ${helm.version} \\`);
+  lines.push(`  -n ${helm.namespace}${helm.createNamespace ? ' --create-namespace' : ''}`);
+  for (const [k, v] of Object.entries(helm.defaultValues ?? {})) {
+    lines[lines.length - 1] += ' \\';
+    lines.push(`  --set ${k}=${v}`);
+  }
+  return lines.join('\n');
+}
+
+function renderPrerequisite(pre: Prerequisite, key: number): any {
+  return h(
+    Paper,
+    { key, variant: 'outlined', sx: sx.prereqCard },
+    h(
+      Box,
+      { sx: sx.prereqHead },
+      h(Typography, { variant: 'body2', sx: { fontWeight: 600 } }, pre.name),
+      pre.installUrl
+        ? h(
+            Link,
+            {
+              href: pre.installUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              variant: 'caption',
+              sx: { whiteSpace: 'nowrap' },
+            },
+            'Docs ↗',
+          )
+        : null,
+    ),
+    pre.description
+      ? h(Typography, { variant: 'body2', sx: { mt: 0.25 } }, pre.description)
+      : null,
+    pre.helm
+      ? h(
+          'details',
+          null,
+          h(Typography, { component: 'summary', variant: 'caption', sx: sx.prereqSummary }, 'Install command'),
+          h(CodeBlock, { command: prerequisiteHelmCommand(pre), mt: 1 }),
+        )
+      : null,
+  );
+}
+
+function renderPrerequisites(prerequisites: Prerequisite[] | undefined): any {
+  if (!prerequisites || !prerequisites.length) return null;
+  return h(
+    Box,
+    { sx: sx.section },
+    sectionTitle('Prerequisites'),
+    h(Box, { sx: sx.prereqList }, ...prerequisites.map(renderPrerequisite)),
   );
 }
 
@@ -132,16 +199,14 @@ function useAppBarOffset(): number {
   return offset;
 }
 
-export function Drawer(props: {
-  entry: CatalogEntry;
-  pluginName: string;
-  onClose: () => void;
-}): any {
-  const { entry, pluginName, onClose } = props;
+export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
+  const { entry, onClose } = props;
   const appBarOffset = useAppBarOffset();
   const isGated = entry.access === 'gated';
   const version = isGated ? null : defaultChannelVersion(entry);
   const install = isGated ? null : helmInstallCommand(entry);
+  const isOutdated = entry.installed && isVersionOutdated(entry.installedVersion, version);
+  const upgradeCmd = isOutdated ? helmUpgradeCommand(entry) : null;
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
@@ -153,6 +218,7 @@ export function Drawer(props: {
       open: true,
       onClose,
       PaperProps: {
+        'data-testid': 'plugin-hub-drawer',
         sx: {
           width: 'min(560px, 100%)',
           p: 3,
@@ -169,7 +235,7 @@ export function Drawer(props: {
       Box,
       { sx: sx.drawerHeader },
       h(IconImg, {
-        src: resolveIconSrc(entry.icon, pluginName),
+        src: resolveIconSrc(entry.icon),
         style: { width: 40, height: 40 },
       }),
       h(
@@ -321,6 +387,8 @@ export function Drawer(props: {
 
     h(Divider, { sx: { my: 2 } }),
 
+    isGated ? null : renderPrerequisites(entry.install?.prerequisites),
+
     h(
       Box,
       { sx: sx.section },
@@ -358,11 +426,23 @@ export function Drawer(props: {
                   'No contact URL configured. See the source repository for details.'
                 )
           )
+        : isOutdated
+        ? h(
+            Box,
+            null,
+            h(
+              Alert,
+              { severity: 'warning', sx: { mb: 1.5 } },
+              `A newer version (${version}) is available. Currently installed: ${entry.installedVersion}`
+            ),
+            sectionTitle('Upgrade with Helm'),
+            h(CodeBlock, { command: upgradeCmd })
+          )
         : h(
             Box,
             null,
             sectionTitle('Install with Helm'),
-            h(Box, { component: 'pre', sx: sx.codeBlock }, install)
+            h(CodeBlock, { command: install })
           )
     ),
 

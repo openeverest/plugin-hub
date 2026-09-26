@@ -1,6 +1,6 @@
 // Icon resolution + a self-healing <img> that falls back to an inline
 // placeholder when an upstream icon fails to load.
-import { h } from './runtime';
+import { h, pluginBasePath } from './runtime';
 
 export const ICON_FALLBACK_DATA_URI =
   "data:image/svg+xml;utf8," +
@@ -14,10 +14,11 @@ const failedIconSrcs = new Set<string>();
 
 // resolveIconSrc converts whatever the backend put into entry.icon into a
 // usable <img src>. The backend now emits *relative* paths (e.g.
-// 'api/icon/<key>') for proxied icons; we prepend the plugin's runtime
-// mount prefix here so the URL is correct regardless of the release name
-// the chart was installed under.
-export function resolveIconSrc(rawIcon: string | undefined, pluginName: string): string {
+// 'api/icon/<key>') for proxied icons; we prepend the host-supplied plugin
+// base path (`/v1/clusters/{cluster}/plugins/{pluginName}`) so the URL is
+// correct regardless of the current cluster or the release name the chart
+// was installed under.
+export function resolveIconSrc(rawIcon: string | undefined): string {
   if (!rawIcon) return ICON_FALLBACK_DATA_URI;
   if (
     rawIcon.startsWith('data:') ||
@@ -27,8 +28,8 @@ export function resolveIconSrc(rawIcon: string | undefined, pluginName: string):
   ) {
     return rawIcon;
   }
-  if (!pluginName) return ICON_FALLBACK_DATA_URI;
-  return `/v1/plugins/${pluginName}/${rawIcon}`;
+  if (!pluginBasePath) return ICON_FALLBACK_DATA_URI;
+  return `${pluginBasePath}/${rawIcon}`;
 }
 
 export function IconImg(props: { src: string; alt?: string; style?: any }): any {

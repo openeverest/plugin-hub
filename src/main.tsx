@@ -8,14 +8,12 @@
 //
 // The runtime contract follows the openeverest/generic-plugin-template
 // pattern: React and the host-authenticated fetch are injected via the
-// `register(api)` call (see runtime.ts), so this module uses
-// React.createElement (via `h`) directly and does not import React or any UI
-// framework. The bundle stays small and the host stays in charge of
-// dependency versions.
+// `register(api)` call (see runtime.ts). UI comes from @openeverest/ui-lib:
+// the plugin bundles its own pinned MUI and inherits the host look through
+// the `--everest-*` CSS variables, so host MUI upgrades don't affect it.
 import type {
   PluginRegisterFn,
   PluginApi,
-  PluginRouteProps,
 } from '@openeverest/plugin-sdk';
 
 import { React, h, initRuntime, cssNonce } from './runtime';
@@ -40,15 +38,15 @@ import { matchesFilter } from './catalog';
 import { Toolbar } from './components/Toolbar';
 import { Row } from './components/Row';
 import { Drawer } from './components/Drawer';
-import type { CatalogEntry, FilterState, SummaryResponse } from './types';
+import type { CatalogEntry, FilterState, InstalledItem, SummaryResponse } from './types';
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-const HubPage = (props: PluginRouteProps): any => {
+const HubPage = (): any => {
   const [data, setData] = React.useState<SummaryResponse | null>(null);
-  const [installedKeys, setInstalledKeys] = React.useState<Set<string> | null>(null);
+  const [installedMap, setInstalledMap] = React.useState<Map<string, InstalledItem> | null>(null);
   const [installedError, setInstalledError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -75,19 +73,19 @@ const HubPage = (props: PluginRouteProps): any => {
 
     // Install status is loaded independently so a slow or failing everest API
     // never blocks the catalog. Labels fill in once this resolves.
-    setInstalledKeys(null);
+    setInstalledMap(null);
     setInstalledError(null);
     fetchInstalled()
       .then((res) => {
-        const keys = new Set<string>();
+        const map = new Map<string, InstalledItem>();
         for (const item of res.items ?? []) {
-          if (item?.name) keys.add(installedKey(item.type, item.name));
+          if (item?.name) map.set(installedKey(item.type, item.name), item);
         }
-        setInstalledKeys(keys);
+        setInstalledMap(map);
         if (res.error) setInstalledError(res.error);
       })
       .catch((err: Error) => {
-        setInstalledKeys(new Set());
+        setInstalledMap(new Map());
         setInstalledError(err.message);
       });
   }, []);
@@ -96,15 +94,19 @@ const HubPage = (props: PluginRouteProps): any => {
     load();
   }, [load]);
 
-  const installedLoading = installedKeys === null;
+  const installedLoading = installedMap === null;
   const entries = React.useMemo(() => {
     const raw = data?.extensions ?? [];
-    if (!installedKeys) return raw;
-    return raw.map((e) => ({
-      ...e,
-      installed: installedKeys.has(installedKey(e.type, e.name)),
-    }));
-  }, [data, installedKeys]);
+    if (!installedMap) return raw;
+    return raw.map((e) => {
+      const installed = installedMap.get(installedKey(e.type, e.name));
+      return {
+        ...e,
+        installed: !!installed,
+        installedVersion: installed?.version || e.installedVersion,
+      };
+    });
+  }, [data, installedMap]);
   const filtered = entries.filter((e) => matchesFilter(e, filter));
   const counts = {
     total: entries.length,
@@ -118,7 +120,7 @@ const HubPage = (props: PluginRouteProps): any => {
     { cacheKey: 'plugin-hub', nonce: cssNonce },
     h(
       Box,
-      { sx: sx.page },
+      { sx: sx.page, 'data-testid': 'plugin-hub-root' },
       h(
         Box,
         { sx: sx.headerRow },
@@ -142,6 +144,7 @@ const HubPage = (props: PluginRouteProps): any => {
             {
               variant: 'contained',
               size: 'small',
+              'data-testid': 'plugin-hub-add-extension',
               href: 'https://github.com/openeverest/hub',
               target: '_blank',
               rel: 'noopener noreferrer',
@@ -224,9 +227,7 @@ const HubPage = (props: PluginRouteProps): any => {
               h(
                 TableBody,
                 null,
-                ...filtered.map((entry) =>
-                  Row({ entry, pluginName: props.pluginName, onSelect: setSelected })
-                )
+                ...filtered.map((entry) => Row({ entry, onSelect: setSelected }))
               )
             )
           ),
@@ -234,7 +235,6 @@ const HubPage = (props: PluginRouteProps): any => {
       selected
         ? h(Drawer, {
             entry: selected,
-            pluginName: props.pluginName,
             onClose: () => setSelected(null),
           })
         : null

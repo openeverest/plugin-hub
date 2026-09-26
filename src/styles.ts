@@ -1,6 +1,6 @@
-// Styling via MUI `sx` + host theme tokens (palette paths, spacing units).
-// Colors resolve to the host-owned `--mui-*` CSS variables, so plugin-hub
-// follows the host palette and dark mode with no hardcoded values.
+// Styling via MUI `sx` + theme tokens (palette paths, spacing units). The theme
+// comes from PluginThemeProvider, which reads the host's `--everest-*` CSS
+// variables, so plugin-hub follows the host palette and dark mode.
 import type { SxProps, Theme } from '@openeverest/ui-lib';
 
 export type MuiColor =
@@ -12,7 +12,7 @@ export type MuiColor =
   | 'success'
   | 'warning';
 
-export const sx: Record<string, SxProps<Theme>> = {
+export const sx = {
   page: { p: 3, maxWidth: 1280, mx: 'auto' },
   headerRow: {
     display: 'flex',
@@ -57,8 +57,35 @@ export const sx: Record<string, SxProps<Theme>> = {
     borderRadius: 1,
     fontFamily: 'monospace',
     fontSize: '0.8125rem',
-    whiteSpace: 'pre',
-    overflowX: 'auto',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  codeBlockWrap: {
+    position: 'relative',
+    '&:hover .copy-btn': { opacity: 1 },
+  },
+  copyBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    color: 'grey.100',
+    opacity: 0,
+    transition: 'opacity 0.15s ease',
+  },
+  prereqList: { display: 'flex', flexDirection: 'column', gap: 1 },
+  prereqCard: { px: 1.5, py: 1.25 },
+  prereqHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 1,
+  },
+  prereqSummary: {
+    display: 'block',
+    cursor: 'pointer',
+    color: 'primary.main',
+    mt: 1,
+    userSelect: 'none',
   },
   iconImg: { width: 28, height: 28, objectFit: 'contain' },
   drawerHeader: { display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 },
@@ -70,7 +97,7 @@ export const sx: Record<string, SxProps<Theme>> = {
     flexWrap: 'wrap',
   },
   capKey: { color: 'text.secondary', fontWeight: 500, minWidth: 120 },
-};
+} satisfies Record<string, SxProps<Theme>>;
 
 // Maps a maturity string to a MUI Chip color, so the chip follows the theme.
 export function maturityColor(maturity: string): MuiColor {

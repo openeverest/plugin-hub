@@ -1,6 +1,6 @@
 import { h } from '../runtime';
 import { maturityColor, typeColor } from '../styles';
-import { defaultChannelVersion } from '../catalog';
+import { defaultChannelVersion, isVersionOutdated } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import {
   TableRow,
@@ -13,11 +13,11 @@ import type { CatalogEntry } from '../types';
 
 export function Row(props: {
   entry: CatalogEntry;
-  pluginName: string;
   onSelect: (e: CatalogEntry) => void;
 }): any {
-  const { entry, pluginName, onSelect } = props;
+  const { entry, onSelect } = props;
   const version = defaultChannelVersion(entry);
+  const outdated = isVersionOutdated(entry.installedVersion, version);
   return h(
     TableRow,
     {
@@ -30,7 +30,7 @@ export function Row(props: {
       TableCell,
       { sx: { width: 40, textAlign: 'center' } },
       h(IconImg, {
-        src: resolveIconSrc(entry.icon, pluginName),
+        src: resolveIconSrc(entry.icon),
         style: { width: 28, height: 28, objectFit: 'contain' },
       })
     ),
@@ -98,11 +98,13 @@ export function Row(props: {
           : null,
         entry.installed
           ? h(Chip, {
-              label: entry.installedVersion
+              label: outdated
+                ? `Update available · ${entry.installedVersion} → ${version}`
+                : entry.installedVersion
                 ? `Installed · ${entry.installedVersion}`
                 : 'Installed',
               size: 'small',
-              color: 'success',
+              color: outdated ? 'warning' : 'success',
             })
           : null
       )

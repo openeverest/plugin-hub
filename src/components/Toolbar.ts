@@ -30,6 +30,7 @@ export function Toolbar(props: {
     h(TextField, {
       size: 'small',
       type: 'search',
+      inputProps: { 'data-testid': 'plugin-hub-search' },
       placeholder: 'Search by name, description, category…',
       value: filter.query,
       onChange: (e: any) => onChange({ ...filter, query: e.target.value }),

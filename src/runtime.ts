@@ -7,16 +7,18 @@ import type { PluginApi } from '@openeverest/plugin-sdk';
 
 export let React: PluginApi['React'];
 export let pluginFetch: PluginApi['fetch'];
-// CSP nonce read from the host DOM, forwarded to PluginThemeProvider's Emotion cache.
-export let cssNonce: string;
+// Proxy base the plugin is served under
+// (`/v1/clusters/{cluster}/plugins/{pluginName}`). Used to build asset URLs
+// that must be plain strings (e.g. <img src>) and so can't go through fetch.
+export let pluginBasePath: PluginApi['basePath'];
+// Forwarded to PluginThemeProvider so Emotion's <style> tags pass the host CSP.
+export let cssNonce: PluginApi['cssNonce'];
 
 export function initRuntime(api: PluginApi): void {
   React = api.React;
   pluginFetch = api.fetch.bind(api);
-  cssNonce =
-    document
-      .querySelector("meta[name='csp-nonce']")
-      ?.getAttribute('content') ?? '';
+  pluginBasePath = api.basePath;
+  cssNonce = api.cssNonce;
 }
 
 // h is a thin React.createElement wrapper so components can be authored
