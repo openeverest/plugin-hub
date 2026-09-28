@@ -8,9 +8,9 @@
 //
 // The runtime contract follows the openeverest/generic-plugin-template
 // pattern: React and the host-authenticated fetch are injected via the
-// `register(api)` call (see runtime.ts). UI comes from @openeverest/ui-lib:
-// the plugin bundles its own pinned MUI and inherits the host look through
-// the `--everest-*` CSS variables, so host MUI upgrades don't affect it.
+// `register(api)` call (see runtime.ts). The UI uses the plugin's own pinned
+// MUI, themed by @openeverest/plugin-theme from the host's `--everest-*` CSS
+// variables, so host MUI upgrades don't affect it.
 import type {
   PluginRegisterFn,
   PluginApi,
@@ -18,8 +18,8 @@ import type {
 
 import { React, h, initRuntime, cssNonce } from './runtime';
 import { sx } from './styles';
+import { PluginThemeProvider } from '@openeverest/plugin-theme';
 import {
-  PluginThemeProvider,
   Box,
   Typography,
   Button,
@@ -32,7 +32,7 @@ import {
   TableCell,
   TableContainer,
   Paper,
-} from '@openeverest/ui-lib';
+} from '@mui/material';
 import { fetchCatalog, fetchInstalled, installedKey } from './data';
 import { matchesFilter } from './catalog';
 import { Toolbar } from './components/Toolbar';

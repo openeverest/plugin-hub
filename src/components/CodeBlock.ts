@@ -1,6 +1,6 @@
 import { h, React } from '../runtime';
 import { sx } from '../styles';
-import { Box, IconButton, Tooltip } from '@openeverest/ui-lib';
+import { Box, IconButton, Tooltip } from '@mui/material';
 
 function copyIcon(): any {
   return h(

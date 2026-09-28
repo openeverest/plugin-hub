@@ -8,7 +8,7 @@ import {
   Chip,
   Typography,
   Box,
-} from '@openeverest/ui-lib';
+} from '@mui/material';
 import type { CatalogEntry } from '../types';
 
 export function Row(props: {

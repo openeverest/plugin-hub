@@ -8,7 +8,7 @@ import {
   Checkbox,
   Button,
   Typography,
-} from '@openeverest/ui-lib';
+} from '@mui/material';
 import type { FilterState } from '../types';
 
 export function Toolbar(props: {

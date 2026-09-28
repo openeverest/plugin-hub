@@ -18,7 +18,7 @@ import {
   Link,
   Divider,
   Paper,
-} from '@openeverest/ui-lib';
+} from '@mui/material';
 import type { CatalogEntry, Prerequisite } from '../types';
 
 function humanizeKey(key: string): string {

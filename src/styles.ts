@@ -1,7 +1,7 @@
 // Styling via MUI `sx` + theme tokens (palette paths, spacing units). The theme
 // comes from PluginThemeProvider, which reads the host's `--everest-*` CSS
 // variables, so plugin-hub follows the host palette and dark mode.
-import type { SxProps, Theme } from '@openeverest/ui-lib';
+import type { SxProps, Theme } from '@mui/material';
 
 export type MuiColor =
   | 'default'

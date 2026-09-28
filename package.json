@@ -13,7 +13,7 @@
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
     "@mui/material": "^7.3.0",
-    "@openeverest/ui-lib": "file:../openeverest/ui/packages/plugin-ui-lib"
+    "@openeverest/plugin-theme": "file:../openeverest/ui/packages/plugin-theme"
   },
   "devDependencies": {
     "@openeverest/plugin-sdk": "file:../openeverest/ui/packages/plugin-sdk",
