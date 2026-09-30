@@ -1,7 +1,14 @@
 import { h } from '../runtime';
-import { styles } from '../styles';
+import { maturityColor, typeColor } from '../styles';
 import { defaultChannelVersion, isVersionOutdated } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
+import {
+  TableRow,
+  TableCell,
+  Chip,
+  Typography,
+  Box,
+} from '@mui/material';
 import type { CatalogEntry } from '../types';
 
 export function Row(props: {
@@ -10,70 +17,98 @@ export function Row(props: {
 }): any {
   const { entry, onSelect } = props;
   const version = defaultChannelVersion(entry);
+  const outdated = isVersionOutdated(entry.installedVersion, version);
   return h(
-    'tr',
+    TableRow,
     {
       key: entry.name,
-      style: { cursor: 'pointer' },
+      hover: true,
+      sx: { cursor: 'pointer' },
       onClick: () => onSelect(entry),
     },
     h(
-      'td',
-      { style: { ...styles.td, ...styles.iconCell } },
+      TableCell,
+      { sx: { width: 40, textAlign: 'center' } },
       h(IconImg, {
         src: resolveIconSrc(entry.icon),
-        style: styles.iconImg,
-      }),
+        style: { width: 28, height: 28, objectFit: 'contain' },
+      })
     ),
     h(
-      'td',
-      { style: styles.td },
-      h('div', { style: { fontWeight: 600 } }, entry.displayName || entry.name),
+      TableCell,
+      null,
+      h(Typography, { sx: { fontWeight: 600 } }, entry.displayName || entry.name),
       h(
-        'div',
-        { style: { color: '#6b7280', fontSize: '0.8125rem', marginTop: 2 } },
-        entry.name,
-      ),
+        Typography,
+        { variant: 'caption', sx: { color: 'text.secondary' } },
+        entry.name
+      )
     ),
-    h('td', { style: styles.td }, h('span', { style: styles.typeChip(entry.type) }, entry.type)),
-    h('td', { style: styles.td }, version ?? '—'),
     h(
-      'td',
-      { style: styles.td },
+      TableCell,
+      null,
+      h(Chip, {
+        label: entry.type,
+        size: 'small',
+        color: typeColor(entry.type),
+        variant: 'outlined',
+        sx: { textTransform: 'capitalize' },
+      })
+    ),
+    h(TableCell, null, version ?? '—'),
+    h(
+      TableCell,
+      null,
       ...(entry.categories ?? []).map((c) =>
-        h('span', { key: c, style: styles.categoryTag }, c),
-      ),
+        h(Chip, {
+          key: c,
+          label: c,
+          size: 'small',
+          variant: 'outlined',
+          sx: { mr: 0.5, mb: 0.5 },
+        })
+      )
     ),
     h(
-      'td',
-      { style: styles.td },
+      TableCell,
+      null,
       h(
-        'div',
-        { style: { display: 'flex', flexDirection: 'column' as const, gap: 4, alignItems: 'flex-start' } },
-        h(
-          'span',
-          { style: styles.maturityChip(entry.maturity || 'unknown') },
-          entry.maturity || 'unknown',
-        ),
+        Box,
+        {
+          sx: {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 0.5,
+            alignItems: 'flex-start',
+          },
+        },
+        h(Chip, {
+          label: entry.maturity || 'unknown',
+          size: 'small',
+          color: maturityColor(entry.maturity || 'unknown'),
+          variant: 'outlined',
+          sx: { textTransform: 'capitalize' },
+        }),
         entry.access === 'gated'
-          ? h('span', { style: styles.gatedChip }, 'Gated')
+          ? h(Chip, {
+              label: 'Gated',
+              size: 'small',
+              color: 'secondary',
+              variant: 'outlined',
+            })
           : null,
         entry.installed
-          ? h(
-              'span',
-              {
-                style: isVersionOutdated(entry.installedVersion, version)
-                  ? styles.statusOutdated
-                  : styles.statusInstalled,
-              },
-              isVersionOutdated(entry.installedVersion, version)
+          ? h(Chip, {
+              label: outdated
                 ? `Update available · ${entry.installedVersion} → ${version}`
                 : entry.installedVersion
                 ? `Installed · ${entry.installedVersion}`
                 : 'Installed',
-            )
-          : null,
-      ),
-    ),
+              size: 'small',
+              color: outdated ? 'warning' : 'success',
+            })
+          : null
+      )
+    )
   );
 }
