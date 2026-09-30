@@ -23,10 +23,6 @@ const failOnHostRequire = (): Plugin => ({
 
 export default defineConfig(({ command }) => ({
   plugins: [react(), failOnHostRequire()],
-  resolve: {
-    // @openeverest/* are linked from the core repo with their own node_modules; use this plugin's copies.
-    dedupe: ['@mui/material', '@emotion/react', '@emotion/styled', '@emotion/cache'],
-  },
   // Library mode leaves process.env untouched, but bundled MUI/Emotion read NODE_ENV.
   define:
     command === 'build'
