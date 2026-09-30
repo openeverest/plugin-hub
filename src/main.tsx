@@ -50,7 +50,6 @@ const HubPage = (): any => {
   const [installedError, setInstalledError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
-  const [lastRefreshed, setLastRefreshed] = React.useState<Date | null>(null);
   const [filter, setFilter] = React.useState<FilterState>({
     query: '',
     type: 'all',
@@ -64,10 +63,7 @@ const HubPage = (): any => {
     setError(null);
     // Catalog is the fast, cached call — it gates the initial paint.
     fetchCatalog()
-      .then((res) => {
-        setData(res);
-        setLastRefreshed(new Date());
-      })
+      .then(setData)
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
 
@@ -144,6 +140,7 @@ const HubPage = (): any => {
             {
               variant: 'contained',
               size: 'small',
+              sx: sx.primaryAction,
               'data-testid': 'plugin-hub-add-extension',
               href: 'https://github.com/openeverest/hub',
               target: '_blank',
@@ -186,13 +183,7 @@ const HubPage = (): any => {
           )
         : null,
 
-      h(Toolbar, {
-        filter,
-        onChange: setFilter,
-        onRefresh: load,
-        refreshing: loading,
-        lastRefreshed,
-      }),
+      h(Toolbar, { filter, onChange: setFilter }),
 
       loading && !data
         ? h(Box, { sx: sx.empty }, 'Loading catalog…')

@@ -6,19 +6,14 @@ import {
   Chip,
   FormControlLabel,
   Checkbox,
-  Button,
-  Typography,
 } from '@mui/material';
 import type { FilterState } from '../types';
 
 export function Toolbar(props: {
   filter: FilterState;
   onChange: (f: FilterState) => void;
-  onRefresh: () => void;
-  refreshing: boolean;
-  lastRefreshed: Date | null;
 }): any {
-  const { filter, onChange, onRefresh, refreshing, lastRefreshed } = props;
+  const { filter, onChange } = props;
   const chipDefs: Array<{ key: FilterState['type']; label: string }> = [
     { key: 'all', label: 'All' },
     { key: 'plugin', label: 'Plugins' },
@@ -66,23 +61,6 @@ export function Toolbar(props: {
           onChange({ ...filter, hideGated: !e.target.checked }),
       }),
       label: 'Include gated',
-    }),
-    h(
-      Button,
-      {
-        variant: 'outlined',
-        size: 'small',
-        onClick: onRefresh,
-        disabled: refreshing,
-      },
-      refreshing ? 'Refreshing…' : 'Refresh'
-    ),
-    lastRefreshed
-      ? h(
-          Typography,
-          { variant: 'caption', sx: { color: 'text.secondary' } },
-          `Updated ${lastRefreshed.toLocaleTimeString()}`
-        )
-      : null
+    })
   );
 }

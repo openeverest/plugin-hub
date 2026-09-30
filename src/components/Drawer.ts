@@ -321,6 +321,7 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
                 label: entry.maturity,
                 size: 'small',
                 color: maturityColor(entry.maturity),
+                variant: 'outlined',
                 sx: { textTransform: 'capitalize' },
               })
             )

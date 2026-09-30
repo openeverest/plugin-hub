@@ -28,6 +28,8 @@ export const sx = {
     alignItems: 'flex-end',
     gap: 0.75,
   },
+  // Host pill button (size=small contained); plugin-theme doesn't bridge component overrides yet.
+  primaryAction: { borderRadius: 128, px: 1.5, py: 1 },
   subtitle: { color: 'text.secondary' },
   toolbar: {
     display: 'flex',
@@ -99,21 +101,10 @@ export const sx = {
   capKey: { color: 'text.secondary', fontWeight: 500, minWidth: 120 },
 } satisfies Record<string, SxProps<Theme>>;
 
-// Maps a maturity string to a MUI Chip color, so the chip follows the theme.
+// Maturity renders as a neutral outlined chip like the host's provider tiles;
+// only deprecated is highlighted.
 export function maturityColor(maturity: string): MuiColor {
-  switch ((maturity || 'unknown').toLowerCase()) {
-    case 'alpha':
-      return 'warning';
-    case 'beta':
-      return 'info';
-    case 'stable':
-    case 'ga':
-      return 'success';
-    case 'deprecated':
-      return 'error';
-    default:
-      return 'default';
-  }
+  return maturity.toLowerCase() === 'deprecated' ? 'error' : 'default';
 }
 
 export function typeColor(type: string): MuiColor {

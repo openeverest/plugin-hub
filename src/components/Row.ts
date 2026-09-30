@@ -86,6 +86,7 @@ export function Row(props: {
           label: entry.maturity || 'unknown',
           size: 'small',
           color: maturityColor(entry.maturity || 'unknown'),
+          variant: 'outlined',
           sx: { textTransform: 'capitalize' },
         }),
         entry.access === 'gated'
