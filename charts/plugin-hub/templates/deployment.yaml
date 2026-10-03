@@ -37,6 +37,10 @@ spec:
             - name: HUB_INDEX_URL
               value: {{ .Values.hubIndexURL | quote }}
             {{- end }}
+            {{- if .Values.localIndex.configMapName }}
+            - name: HUB_INDEX_PATH
+              value: "/etc/plugin-hub-index/{{ .Values.localIndex.key }}"
+            {{- end }}
             {{- if .Values.cacheTTLSeconds }}
             - name: CACHE_TTL_SECONDS
               value: {{ .Values.cacheTTLSeconds | quote }}
@@ -45,6 +49,12 @@ spec:
             - name: EVEREST_CLUSTER_NAME
               value: {{ .Values.clusterName | quote }}
             {{- end }}
+          {{- if .Values.localIndex.configMapName }}
+          volumeMounts:
+            - name: local-index
+              mountPath: /etc/plugin-hub-index
+              readOnly: true
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -59,3 +69,9 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.localIndex.configMapName }}
+      volumes:
+        - name: local-index
+          configMap:
+            name: {{ .Values.localIndex.configMapName }}
+      {{- end }}
