@@ -1,5 +1,6 @@
 import { h, React } from '../runtime';
-import { styles } from '../styles';
+import { sx } from '../styles';
+import { Box, IconButton, Tooltip } from '@mui/material';
 
 function copyIcon(): any {
   return h(
@@ -39,10 +40,9 @@ function checkIcon(): any {
 }
 
 // A code snippet with a one-click copy button in the top-right corner.
-export function CodeBlock(props: { command: string; style?: any }): any {
-  const { command } = props;
+export function CodeBlock(props: { command: string; mt?: number }): any {
+  const { command, mt } = props;
   const [copied, setCopied] = React.useState(false);
-  const [hovered, setHovered] = React.useState(false);
 
   const copy = React.useCallback(() => {
     const flash = () => {
@@ -57,28 +57,23 @@ export function CodeBlock(props: { command: string; style?: any }): any {
   }, [command]);
 
   return h(
-    'div',
-    {
-      style: { ...styles.codeBlockWrap, ...(props.style || {}) },
-      onMouseEnter: () => setHovered(true),
-      onMouseLeave: () => setHovered(false),
-    },
+    Box,
+    { sx: { ...sx.codeBlockWrap, mt } },
     h(
-      'button',
-      {
-        type: 'button',
-        onClick: copy,
-        style: {
-          ...styles.copyBtn,
-          opacity: hovered || copied ? 1 : 0,
-          pointerEvents: hovered || copied ? 'auto' : 'none',
+      Tooltip,
+      { title: copied ? 'Copied!' : 'Copy to clipboard' },
+      h(
+        IconButton,
+        {
+          size: 'small',
+          className: 'copy-btn',
+          onClick: copy,
+          'aria-label': copied ? 'Copied' : 'Copy to clipboard',
+          sx: [sx.copyBtn, { opacity: copied ? 1 : undefined }],
         },
-        title: copied ? 'Copied!' : 'Copy to clipboard',
-        'aria-label': copied ? 'Copied' : 'Copy to clipboard',
-      },
-      copied ? checkIcon() : copyIcon(),
+        copied ? checkIcon() : copyIcon(),
+      ),
     ),
-    h('pre', { style: { ...styles.codeBlock, margin: 0 } }, command),
+    h(Box, { component: 'pre', sx: [sx.codeBlock, { m: 0 }] }, command),
   );
 }
-
