@@ -1,6 +1,7 @@
 import { h } from '../runtime';
 import { sx, maturityColor, typeColor } from '../styles';
 import {
+  currentVersion,
   defaultChannelVersion,
   helmInstallCommand,
   helmUpgradeCommand,
@@ -9,6 +10,7 @@ import {
 import { IconImg, resolveIconSrc } from '../icons';
 import { CodeBlock } from './CodeBlock';
 import { DrawerShell } from './DrawerShell';
+import { InstallActions } from './InstallActions';
 import {
   Alert,
   Box,
@@ -19,7 +21,7 @@ import {
   Divider,
   Paper,
 } from '@mui/material';
-import type { CatalogEntry, Prerequisite } from '../types';
+import type { CatalogEntry, InstallerStatus, Prerequisite, ReleaseInfo } from '../types';
 
 function humanizeKey(key: string): string {
   return key
@@ -179,13 +181,21 @@ const tagList = (items: string[]): any =>
     )
   );
 
-export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
-  const { entry, onClose } = props;
+export function Drawer(props: {
+  entry: CatalogEntry;
+  installer: InstallerStatus | null;
+  notice: string | null;
+  onInstallerDone: (entry: CatalogEntry, release: ReleaseInfo) => void;
+  onClose: () => void;
+}): any {
+  const { entry, installer, notice, onInstallerDone, onClose } = props;
   const isGated = entry.access === 'gated';
   const version = isGated ? null : defaultChannelVersion(entry);
-  const install = isGated ? null : helmInstallCommand(entry);
-  const isOutdated = entry.installed && isVersionOutdated(entry.installedVersion, version);
-  const upgradeCmd = isOutdated ? helmUpgradeCommand(entry) : null;
+  const installedVersion = currentVersion(entry);
+  const isOutdated = !!entry.installed && isVersionOutdated(installedVersion, version);
+  // Installed and up to date → nothing to do; gated → handled by its own section.
+  const actionMode = isGated ? null : isOutdated ? 'upgrade' : entry.installed ? null : 'install';
+  const releaseStatus = entry.release?.status;
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
@@ -241,12 +251,20 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
           Box,
           { sx: { mb: 2, display: 'flex', alignItems: 'center', gap: 1 } },
           h(Chip, {
-            label: entry.installedVersion
-              ? `Installed · ${entry.installedVersion}`
+            label: installedVersion
+              ? `Installed · ${installedVersion}`
               : 'Installed',
             size: 'small',
             color: 'success',
           }),
+          releaseStatus && releaseStatus !== 'deployed'
+            ? h(Chip, {
+                label: `Helm: ${releaseStatus}`,
+                size: 'small',
+                color: releaseStatus === 'failed' ? 'error' : 'warning',
+                variant: 'outlined',
+              })
+            : null,
           entry.installedPhase
             ? h(
                 Typography,
@@ -255,6 +273,29 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
               )
             : null
         )
+      : null,
+
+    notice ? h(Alert, { severity: 'success', sx: { mb: 2 } }, notice) : null,
+
+    isOutdated
+      ? h(
+          Alert,
+          { severity: 'warning', sx: { mb: 1.5 } },
+          `A newer version (${version}) is available. Currently installed: ${installedVersion}`
+        )
+      : null,
+
+    actionMode
+      ? h(InstallActions, {
+          key: actionMode,
+          entry,
+          mode: actionMode,
+          targetVersion: version,
+          helmCommand:
+            actionMode === 'upgrade' ? helmUpgradeCommand(entry) : helmInstallCommand(entry),
+          canInstallNow: !!installer?.canInstall,
+          onDone: (release: ReleaseInfo) => onInstallerDone(entry, release),
+        })
       : null,
 
     entry.description
@@ -352,62 +393,41 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
 
     isGated ? null : renderPrerequisites(entry.install?.prerequisites),
 
-    h(
-      Box,
-      { sx: sx.section },
-      isGated
-        ? h(
-            Box,
-            null,
-            sectionTitle('Access required'),
-            h(
-              Typography,
-              { variant: 'body2', sx: { mt: 0 } },
-              entry.gated?.instructions ||
-                'This extension is not publicly available. Contact the vendor to request access.'
-            ),
-            entry.gated?.provider
-              ? h(
-                  Typography,
-                  { variant: 'caption', sx: { color: 'text.secondary' } },
-                  `Provided by ${entry.gated.provider}`
-                )
-              : null,
-            entry.gated?.contactUrl
-              ? h(
-                  Link,
-                  {
-                    href: entry.gated.contactUrl,
-                    target: '_blank',
-                    rel: 'noopener noreferrer',
-                  },
-                  'Contact vendor ↗'
-                )
-              : h(
-                  Typography,
-                  { variant: 'caption', sx: { color: 'text.secondary' } },
-                  'No contact URL configured. See the source repository for details.'
-                )
-          )
-        : isOutdated
-        ? h(
-            Box,
-            null,
-            h(
-              Alert,
-              { severity: 'warning', sx: { mb: 1.5 } },
-              `A newer version (${version}) is available. Currently installed: ${entry.installedVersion}`
-            ),
-            sectionTitle('Upgrade with Helm'),
-            h(CodeBlock, { command: upgradeCmd })
-          )
-        : h(
-            Box,
-            null,
-            sectionTitle('Install with Helm'),
-            h(CodeBlock, { command: install })
-          )
-    ),
+    isGated
+      ? h(
+          Box,
+          { sx: sx.section },
+          sectionTitle('Access required'),
+          h(
+            Typography,
+            { variant: 'body2', sx: { mt: 0 } },
+            entry.gated?.instructions ||
+              'This extension is not publicly available. Contact the vendor to request access.'
+          ),
+          entry.gated?.provider
+            ? h(
+                Typography,
+                { variant: 'caption', sx: { color: 'text.secondary' } },
+                `Provided by ${entry.gated.provider}`
+              )
+            : null,
+          entry.gated?.contactUrl
+            ? h(
+                Link,
+                {
+                  href: entry.gated.contactUrl,
+                  target: '_blank',
+                  rel: 'noopener noreferrer',
+                },
+                'Contact vendor ↗'
+              )
+            : h(
+                Typography,
+                { variant: 'caption', sx: { color: 'text.secondary' } },
+                'No contact URL configured. See the source repository for details.'
+              )
+        )
+      : null,
 
     h(
       Box,

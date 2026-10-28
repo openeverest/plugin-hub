@@ -3,7 +3,7 @@
 # Expects dist/main.js to be pre-built (npm run build) and present
 # in the Docker build context.
 # ──────────────────────────────────────────────────────────────────
-FROM golang:1.22-alpine AS backend-builder
+FROM golang:1.26-alpine AS backend-builder
 
 WORKDIR /app
 
@@ -26,6 +26,12 @@ FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 
 COPY --from=backend-builder /app/server /usr/local/bin/server
+
+# The installer pulls charts via the Helm SDK; keep its cache/config in a
+# writable scratch location.
+ENV HELM_CACHE_HOME=/tmp/helm/cache \
+    HELM_CONFIG_HOME=/tmp/helm/config \
+    HELM_DATA_HOME=/tmp/helm/data
 
 EXPOSE 8080
 

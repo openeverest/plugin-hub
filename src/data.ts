@@ -1,7 +1,15 @@
 // Data loading. Catalog and installed state are fetched separately so a slow
 // or failing everest API never blocks the catalog from rendering.
 import { pluginFetch } from './runtime';
-import type { ExtensionType, InstalledResponse, SummaryResponse } from './types';
+import type {
+  CatalogEntry,
+  ExtensionType,
+  InstalledResponse,
+  InstallerAction,
+  InstallerStatus,
+  ReleaseInfo,
+  SummaryResponse,
+} from './types';
 
 // fetchCatalog loads the extension catalog only (no install status). This is
 // the cheap, cached call the host can answer immediately, so the UI can paint
@@ -31,4 +39,34 @@ export async function fetchInstalled(): Promise<InstalledResponse> {
 
 export function installedKey(type: ExtensionType, name: string): string {
   return `${type}:${name}`;
+}
+
+const INSTALLER_DISABLED: InstallerStatus = { enabled: false, canInstall: false };
+
+// fetchInstallerStatus never rejects: any failure just hides the install
+// buttons and the UI falls back to copy-paste helm commands.
+export async function fetchInstallerStatus(): Promise<InstallerStatus> {
+  try {
+    const res = await pluginFetch('/api/installer');
+    if (!res.ok) return INSTALLER_DISABLED;
+    return (await res.json()) as InstallerStatus;
+  } catch {
+    return INSTALLER_DISABLED;
+  }
+}
+
+export async function runInstallerAction(
+  action: InstallerAction,
+  entry: CatalogEntry,
+): Promise<ReleaseInfo> {
+  const res = await pluginFetch(`/api/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: entry.type, name: entry.name }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error || `HTTP ${res.status}`);
+  }
+  return body as ReleaseInfo;
 }

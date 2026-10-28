@@ -34,7 +34,12 @@ import {
   TableContainer,
   Paper,
 } from '@mui/material';
-import { fetchCatalog, fetchInstalled, installedKey } from './data';
+import {
+  fetchCatalog,
+  fetchInstalled,
+  fetchInstallerStatus,
+  installedKey,
+} from './data';
 import { matchesFilter } from './catalog';
 import {
   drawerReturnPath,
@@ -50,7 +55,14 @@ import { Row } from './components/Row';
 import { Drawer } from './components/Drawer';
 import { MissingEntryDrawer } from './components/MissingEntryDrawer';
 import { NotFoundPage } from './components/NotFoundPage';
-import type { CatalogEntry, FilterState, InstalledItem, SummaryResponse } from './types';
+import type {
+  CatalogEntry,
+  FilterState,
+  InstalledItem,
+  InstallerStatus,
+  ReleaseInfo,
+  SummaryResponse,
+} from './types';
 
 const DEFAULT_PLUGIN_NAME = 'plugin-hub';
 
@@ -73,6 +85,11 @@ const HubPage = (props: PluginRouteProps): any => {
   const [data, setData] = React.useState<SummaryResponse | null>(null);
   const [installedMap, setInstalledMap] = React.useState<Map<string, InstalledItem> | null>(null);
   const [installedError, setInstalledError] = React.useState<string | null>(null);
+  const [installer, setInstaller] = React.useState<InstallerStatus | null>(null);
+  const [installerNotice, setInstallerNotice] = React.useState<{
+    key: string;
+    message: string;
+  } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [localFilter, setLocalFilter] = React.useState<Omit<FilterState, 'type'>>({
@@ -81,18 +98,9 @@ const HubPage = (props: PluginRouteProps): any => {
     hideGated: false,
   });
 
-  const load = React.useCallback(() => {
-    setLoading(true);
-    setError(null);
-    // Catalog is the fast, cached call — it gates the initial paint.
-    fetchCatalog()
-      .then(setData)
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
-
+  const loadInstalled = React.useCallback(() => {
     // Install status is loaded independently so a slow or failing everest API
     // never blocks the catalog. Labels fill in once this resolves.
-    setInstalledMap(null);
     setInstalledError(null);
     fetchInstalled()
       .then((res) => {
@@ -107,25 +115,52 @@ const HubPage = (props: PluginRouteProps): any => {
         setInstalledMap(new Map());
         setInstalledError(err.message);
       });
+    fetchInstallerStatus().then(setInstaller);
   }, []);
+
+  const load = React.useCallback(() => {
+    setLoading(true);
+    setError(null);
+    // Catalog is the fast, cached call — it gates the initial paint.
+    fetchCatalog()
+      .then(setData)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
+    setInstalledMap(null);
+    loadInstalled();
+  }, [loadInstalled]);
 
   React.useEffect(() => {
     load();
   }, [load]);
+
+  const onInstallerDone = (entry: CatalogEntry, release: ReleaseInfo) => {
+    const verb = entry.installed ? 'Upgraded' : 'Installed';
+    const reloadHint =
+      entry.type === 'plugin' ? ' Reload the page to load the plugin UI.' : '';
+    setInstallerNotice({
+      key: installedKey(entry.type, entry.name),
+      message: `${verb} ${release.namespace}/${release.release} to ${release.chartVersion} (Helm: ${release.status}).${reloadHint}`,
+    });
+    loadInstalled();
+  };
 
   const installedLoading = installedMap === null;
   const entries = React.useMemo(() => {
     const raw = data?.extensions ?? [];
     if (!installedMap) return raw;
     return raw.map((e) => {
-      const installed = installedMap.get(installedKey(e.type, e.name));
+      const key = installedKey(e.type, e.name);
+      const installed = installedMap.get(key);
+      const release = installer?.releases?.[key];
       return {
         ...e,
-        installed: !!installed,
+        installed: !!installed || !!release,
         installedVersion: installed?.version || e.installedVersion,
+        release,
       };
     });
-  }, [data, installedMap]);
+  }, [data, installedMap, installer]);
   const listType: ListType =
     route.kind === 'list'
       ? route.type
@@ -165,9 +200,17 @@ const HubPage = (props: PluginRouteProps): any => {
   const renderEntryDrawer = (): any => {
     if (route.kind !== 'entry' || !data) return null;
     const entry = entries.find((e) => e.type === route.type && e.name === route.name);
-    return entry
-      ? h(Drawer, { entry, onClose: closeDrawer })
-      : h(MissingEntryDrawer, { type: route.type, name: route.name, onClose: closeDrawer });
+    if (!entry) {
+      return h(MissingEntryDrawer, { type: route.type, name: route.name, onClose: closeDrawer });
+    }
+    const noticeKey = installedKey(entry.type, entry.name);
+    return h(Drawer, {
+      entry,
+      installer,
+      notice: installerNotice?.key === noticeKey ? installerNotice.message : null,
+      onInstallerDone,
+      onClose: closeDrawer,
+    });
   };
 
   return h(

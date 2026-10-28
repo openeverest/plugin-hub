@@ -54,7 +54,27 @@ export interface CatalogEntry {
   installed?: boolean;
   installedVersion?: string;
   installedPhase?: string;
+  // Helm release backing this entry; only known to admins when the installer
+  // is enabled. Carries the real chart version used for upgrade detection.
+  release?: ReleaseInfo;
 }
+
+export interface ReleaseInfo {
+  release: string;
+  namespace: string;
+  chartVersion: string;
+  appVersion?: string;
+  status: string;
+}
+
+export interface InstallerStatus {
+  enabled: boolean;
+  canInstall: boolean;
+  releases?: Record<string, ReleaseInfo>;
+  error?: string;
+}
+
+export type InstallerAction = 'install' | 'upgrade';
 
 export interface SummaryResponse {
   extensions?: CatalogEntry[];

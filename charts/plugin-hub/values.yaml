@@ -45,6 +45,19 @@ cacheTTLSeconds: ""
 # installed providers. Defaults to "main" when empty.
 clusterName: ""
 
+# One-click install / upgrade of hub extensions from the UI. OPT-IN.
+#
+# WARNING: enabling this binds the plugin-hub pod's ServiceAccount to
+# `installer.clusterRole` (cluster-admin by default) — providers ship CRDs and
+# ClusterRoles, so installing them needs cluster-wide rights. Anyone who can
+# change this plugin's image or `hubIndexURL` effectively gains those rights.
+# In-app, only OpenEverest admins (users allowed to create plugins) can trigger
+# installs. Disable again with `--set installer.enabled=false`; this removes
+# the RBAC binding.
+installer:
+  enabled: false
+  clusterRole: cluster-admin
+
 resources:
   limits:
     cpu: 200m
