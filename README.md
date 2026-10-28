@@ -4,6 +4,15 @@ The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It
 
 - **Sidebar entry + dedicated route** registered as an OpenEverest generic plugin.
 - **Searchable, filterable table** of all catalog entries (plugins and providers) with install status, default-channel version, categories, and a per-entry detail drawer.
+- **Deep-linkable URLs** under `/plugins/plugin-hub/`:
+
+  | Path | Shows |
+  | --- | --- |
+  | `/` | All extensions |
+  | `/plugins` · `/providers` | Only plugins · only providers |
+  | `/plugins/<name>` · `/providers/<name>` | That list with the entry's detail drawer open |
+
+  An unknown entry name opens a "not found" drawer over the list; any other unknown path shows an in-plugin "Page not found" view.
 - **Backend-side join**: a single `/api/summary` call merges the hub catalog with the live `InstalledExtension` list so the UI does one round-trip.
 - **Stale-tolerant**: the upstream catalog is cached in-memory; if GitHub becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
 - **Browse-only in v1.** Each catalog entry shows a copy-pasteable `helm install …` command. Install/uninstall actions from the UI will land in a later release.

@@ -1,4 +1,4 @@
-import { h, React } from '../runtime';
+import { h } from '../runtime';
 import { sx, maturityColor, typeColor } from '../styles';
 import {
   defaultChannelVersion,
@@ -8,8 +8,8 @@ import {
 } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import { CodeBlock } from './CodeBlock';
+import { DrawerShell } from './DrawerShell';
 import {
-  Drawer as MuiDrawer,
   Alert,
   Box,
   Typography,
@@ -179,29 +179,8 @@ const tagList = (items: string[]): any =>
     )
   );
 
-// The host AppBar is fixed at the top; measure it so the drawer opens below it
-// instead of rendering behind it.
-function measureAppBarHeight(): number {
-  const appBar = document.querySelector('header.MuiAppBar-root');
-  if (!appBar) return 64;
-  const height = Math.round(appBar.getBoundingClientRect().height);
-  return height > 0 ? height : 64;
-}
-
-function useAppBarOffset(): number {
-  const [offset, setOffset] = React.useState<number>(measureAppBarHeight);
-  React.useEffect(() => {
-    const update = () => setOffset(measureAppBarHeight());
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
-  return offset;
-}
-
 export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any {
   const { entry, onClose } = props;
-  const appBarOffset = useAppBarOffset();
   const isGated = entry.access === 'gated';
   const version = isGated ? null : defaultChannelVersion(entry);
   const install = isGated ? null : helmInstallCommand(entry);
@@ -212,24 +191,8 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
   const maintainers = entry.maintainers ?? [];
 
   return h(
-    MuiDrawer,
-    {
-      anchor: 'right',
-      open: true,
-      onClose,
-      PaperProps: {
-        sx: {
-          width: 'min(560px, 100%)',
-          p: 3,
-          boxSizing: 'border-box',
-          top: appBarOffset,
-          height: `calc(100% - ${appBarOffset}px)`,
-        },
-      },
-      slotProps: {
-        backdrop: { sx: { top: appBarOffset } },
-      },
-    },
+    DrawerShell,
+    { onClose },
     h(
       Box,
       { sx: sx.drawerHeader },

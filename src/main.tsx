@@ -14,6 +14,7 @@
 import type {
   PluginRegisterFn,
   PluginApi,
+  PluginRouteProps,
 } from '@openeverest/plugin-sdk';
 
 import { React, h, initRuntime, cssNonce } from './runtime';
@@ -35,28 +36,50 @@ import {
 } from '@mui/material';
 import { fetchCatalog, fetchInstalled, installedKey } from './data';
 import { matchesFilter } from './catalog';
+import {
+  drawerReturnPath,
+  entryPath,
+  isEntryType,
+  listPath,
+  navigateHub,
+  parseHubPath,
+} from './routing';
+import type { ListType } from './routing';
 import { Toolbar } from './components/Toolbar';
 import { Row } from './components/Row';
 import { Drawer } from './components/Drawer';
+import { MissingEntryDrawer } from './components/MissingEntryDrawer';
+import { NotFoundPage } from './components/NotFoundPage';
 import type { CatalogEntry, FilterState, InstalledItem, SummaryResponse } from './types';
+
+const DEFAULT_PLUGIN_NAME = 'plugin-hub';
+
+// Opening a drawer pins the list it was opened from; a deep link has no such
+// origin, so the list falls back to the entry's own type.
+function backgroundListType(entryType: ListType): ListType {
+  const returnTo = drawerReturnPath();
+  if (returnTo === null) return entryType;
+  const origin = parseHubPath(returnTo);
+  return origin.kind === 'list' ? origin.type : entryType;
+}
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-const HubPage = (): any => {
+const HubPage = (props: PluginRouteProps): any => {
+  const pluginName = props.pluginName || DEFAULT_PLUGIN_NAME;
+  const route = parseHubPath(props.subPath);
   const [data, setData] = React.useState<SummaryResponse | null>(null);
   const [installedMap, setInstalledMap] = React.useState<Map<string, InstalledItem> | null>(null);
   const [installedError, setInstalledError] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
-  const [filter, setFilter] = React.useState<FilterState>({
+  const [localFilter, setLocalFilter] = React.useState<Omit<FilterState, 'type'>>({
     query: '',
-    type: 'all',
     installedOnly: false,
     hideGated: false,
   });
-  const [selected, setSelected] = React.useState<CatalogEntry | null>(null);
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -103,12 +126,48 @@ const HubPage = (): any => {
       };
     });
   }, [data, installedMap]);
+  const listType: ListType =
+    route.kind === 'list'
+      ? route.type
+      : route.kind === 'entry'
+      ? backgroundListType(route.type)
+      : 'all';
+  const filter: FilterState = { ...localFilter, type: listType };
   const filtered = entries.filter((e) => matchesFilter(e, filter));
   const counts = {
     total: entries.length,
     plugin: entries.filter((e) => e.type === 'plugin').length,
     provider: entries.filter((e) => e.type === 'provider').length,
     installed: entries.filter((e) => e.installed).length,
+  };
+
+  const onFilterChange = ({ type, ...rest }: FilterState) => {
+    setLocalFilter(rest);
+    if (type !== listType) navigateHub(pluginName, listPath(type));
+  };
+  const openEntry = (entry: CatalogEntry) => {
+    if (!isEntryType(entry.type)) return;
+    navigateHub(pluginName, entryPath(entry.type, entry.name), {
+      returnTo: listPath(listType),
+    });
+  };
+  const closeDrawer = () => {
+    if (drawerReturnPath() !== null) {
+      window.history.back();
+    } else {
+      navigateHub(pluginName, listPath(listType), { replace: true });
+    }
+  };
+  const goHome = () => navigateHub(pluginName, listPath('all'));
+
+  // Wait for the catalog before resolving a deep-linked entry so a slow load
+  // isn't mistaken for a missing entry.
+  const renderEntryDrawer = (): any => {
+    if (route.kind !== 'entry' || !data) return null;
+    const entry = entries.find((e) => e.type === route.type && e.name === route.name);
+    return entry
+      ? h(Drawer, { entry, onClose: closeDrawer })
+      : h(MissingEntryDrawer, { type: route.type, name: route.name, onClose: closeDrawer });
   };
 
   return h(
@@ -161,74 +220,75 @@ const HubPage = (): any => {
         )
       ),
 
-      error
-        ? h(
-            Alert,
-            { severity: 'error', sx: { mb: 2 } },
-            `Failed to load catalog: ${error}`
-          )
-        : null,
-      data?.stale
-        ? h(
-            Alert,
-            { severity: 'warning', sx: { mb: 2 } },
-            'Showing cached catalog — upstream hub index is currently unreachable.'
-          )
-        : null,
-      installedError
-        ? h(
-            Alert,
-            { severity: 'warning', sx: { mb: 2 } },
-            `Could not load installed extensions: ${installedError}. Showing catalog without install status.`
-          )
-        : null,
-
-      h(Toolbar, { filter, onChange: setFilter }),
-
-      loading && !data
-        ? h(Box, { sx: sx.empty }, 'Loading catalog…')
-        : filtered.length === 0
-        ? h(
-            Box,
-            { sx: sx.empty },
-            entries.length === 0
-              ? 'No extensions in the catalog.'
-              : 'No extensions match the current filters.'
-          )
+      route.kind === 'not-found'
+        ? h(NotFoundPage, { onBack: goHome })
         : h(
-            TableContainer,
-            { component: Paper, variant: 'outlined' },
-            h(
-              Table,
-              { size: 'small' },
-              h(
-                TableHead,
-                null,
-                h(
-                  TableRow,
-                  null,
-                  h(TableCell, { sx: { width: 40 } }, ''),
-                  h(TableCell, null, 'Name'),
-                  h(TableCell, null, 'Type'),
-                  h(TableCell, null, 'Version'),
-                  h(TableCell, null, 'Categories'),
-                  h(TableCell, null, 'Maturity')
+            React.Fragment,
+            null,
+            error
+              ? h(
+                  Alert,
+                  { severity: 'error', sx: { mb: 2 } },
+                  `Failed to load catalog: ${error}`
                 )
-              ),
-              h(
-                TableBody,
-                null,
-                ...filtered.map((entry) => Row({ entry, onSelect: setSelected }))
-              )
-            )
-          ),
+              : null,
+            data?.stale
+              ? h(
+                  Alert,
+                  { severity: 'warning', sx: { mb: 2 } },
+                  'Showing cached catalog — upstream hub index is currently unreachable.'
+                )
+              : null,
+            installedError
+              ? h(
+                  Alert,
+                  { severity: 'warning', sx: { mb: 2 } },
+                  `Could not load installed extensions: ${installedError}. Showing catalog without install status.`
+                )
+              : null,
 
-      selected
-        ? h(Drawer, {
-            entry: selected,
-            onClose: () => setSelected(null),
-          })
-        : null
+            h(Toolbar, { filter, onChange: onFilterChange }),
+
+            loading && !data
+              ? h(Box, { sx: sx.empty }, 'Loading catalog…')
+              : filtered.length === 0
+              ? h(
+                  Box,
+                  { sx: sx.empty },
+                  entries.length === 0
+                    ? 'No extensions in the catalog.'
+                    : 'No extensions match the current filters.'
+                )
+              : h(
+                  TableContainer,
+                  { component: Paper, variant: 'outlined' },
+                  h(
+                    Table,
+                    { size: 'small' },
+                    h(
+                      TableHead,
+                      null,
+                      h(
+                        TableRow,
+                        null,
+                        h(TableCell, { sx: { width: 40 } }, ''),
+                        h(TableCell, null, 'Name'),
+                        h(TableCell, null, 'Type'),
+                        h(TableCell, null, 'Version'),
+                        h(TableCell, null, 'Categories'),
+                        h(TableCell, null, 'Maturity')
+                      )
+                    ),
+                    h(
+                      TableBody,
+                      null,
+                      ...filtered.map((entry) => Row({ entry, onSelect: openEntry }))
+                    )
+                  )
+                ),
+
+            renderEntryDrawer()
+          )
     )
   );
 };
