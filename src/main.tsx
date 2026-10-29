@@ -59,6 +59,7 @@ import type {
   CatalogEntry,
   FilterState,
   InstalledItem,
+  InstallerAction,
   InstallerStatus,
   ReleaseInfo,
   SummaryResponse,
@@ -134,14 +135,23 @@ const HubPage = (props: PluginRouteProps): any => {
     load();
   }, [load]);
 
-  const onInstallerDone = (entry: CatalogEntry, release: ReleaseInfo) => {
-    const verb = entry.installed ? 'Upgraded' : 'Installed';
-    const reloadHint =
-      entry.type === 'plugin' ? ' Reload the page to load the plugin UI.' : '';
-    setInstallerNotice({
-      key: installedKey(entry.type, entry.name),
-      message: `${verb} ${release.namespace}/${release.release} to ${release.chartVersion} (Helm: ${release.status}).${reloadHint}`,
-    });
+  const onInstallerDone = (
+    entry: CatalogEntry,
+    action: InstallerAction | 'uninstall',
+    release: ReleaseInfo
+  ) => {
+    const target = `${release.namespace}/${release.release}`;
+    const pluginHint =
+      entry.type === 'plugin'
+        ? action === 'uninstall'
+          ? ' Reload the page to remove the plugin UI.'
+          : ' Reload the page to load the plugin UI.'
+        : '';
+    const message =
+      action === 'uninstall'
+        ? `Uninstalled ${target}.${pluginHint}`
+        : `${action === 'upgrade' ? 'Upgraded' : 'Installed'} ${target} to ${release.chartVersion} (Helm: ${release.status}).${pluginHint}`;
+    setInstallerNotice({ key: installedKey(entry.type, entry.name), message });
     loadInstalled();
   };
 

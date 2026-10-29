@@ -1,4 +1,4 @@
-// One-click install / upgrade of catalog extensions (opt-in).
+// One-click install / upgrade / uninstall of catalog extensions (opt-in).
 //
 // Two independent gates protect these endpoints:
 //
@@ -14,7 +14,9 @@
 //
 // The client only ever sends {type, name}. The chart reference, version,
 // release name and namespace are resolved from the cached hub catalog, so the
-// endpoint cannot be used to deploy arbitrary charts.
+// endpoint cannot be used to deploy or remove arbitrary releases. Uninstalling
+// a provider that still has instances requires an explicit confirmation
+// phrase, enforced here rather than only in the UI.
 package main
 
 import (
@@ -26,6 +28,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +39,12 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/dynamic"
 )
 
 const (
@@ -190,6 +198,9 @@ type installTarget struct {
 	Version   string
 	Release   string
 	Namespace string
+	// ProviderName is the Provider CR name instances reference via
+	// spec.providerRef.name; it can differ from the catalog name.
+	ProviderName string
 }
 
 func resolveTarget(index extensionIndex, extType, name string) (installTarget, error) {
@@ -244,6 +255,12 @@ func targetFromEntry(ext extensionSummary) (installTarget, error) {
 	}
 	if target.Namespace == "" {
 		target.Namespace = "everest-system"
+	}
+	if ext.Type == "provider" {
+		target.ProviderName = ext.Name
+		if name, ok := ext.Provider["providerName"].(string); ok && name != "" {
+			target.ProviderName = name
+		}
 	}
 	return target, nil
 }
@@ -360,6 +377,87 @@ func (i *installer) upgrade(ctx context.Context, t installTarget) (releaseInfo, 
 	return toReleaseInfo(rel), nil
 }
 
+// uninstallConfirmPhrase must be sent to uninstall a provider that still has
+// instances. Enforced server-side so the warning can't be bypassed via API.
+const uninstallConfirmPhrase = "UNINSTALL"
+
+type errInstancesInUse struct{ instances []string }
+
+func (e errInstancesInUse) Error() string {
+	return fmt.Sprintf("%d instance(s) use this provider; confirm with %q to uninstall anyway",
+		len(e.instances), uninstallConfirmPhrase)
+}
+
+func (i *installer) uninstall(_ context.Context, t installTarget, confirm string) (releaseInfo, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if t.ProviderName != "" && confirm != uninstallConfirmPhrase {
+		instances, err := i.instancesUsing(t.ProviderName)
+		if err != nil {
+			return releaseInfo{}, fmt.Errorf("could not check instances using this provider: %w", err)
+		}
+		if len(instances) > 0 {
+			return releaseInfo{}, errInstancesInUse{instances}
+		}
+	}
+
+	cfg, err := i.actionConfig(t.Namespace)
+	if err != nil {
+		return releaseInfo{}, err
+	}
+	if _, err := action.NewGet(cfg).Run(t.Release); err != nil {
+		return releaseInfo{}, errConflict{fmt.Sprintf(
+			"release %s/%s not found; it may have been installed under a different name — uninstall it with helm directly",
+			t.Namespace, t.Release)}
+	}
+	un := action.NewUninstall(cfg)
+	un.Timeout = helmOperationTimeout
+	res, err := un.Run(t.Release)
+	if err != nil {
+		return releaseInfo{}, err
+	}
+	info := releaseInfo{Release: t.Release, Namespace: t.Namespace, Status: "uninstalled"}
+	if res != nil && res.Release != nil {
+		info = toReleaseInfo(res.Release)
+	}
+	return info, nil
+}
+
+var instanceGVR = schema.GroupVersionResource{Group: "core.openeverest.io", Version: "v1alpha1", Resource: "instances"}
+
+// instancesUsing lists "<namespace>/<name>" of every Instance whose
+// spec.providerRef.name matches. It uses the plugin's own ServiceAccount, so
+// the result covers namespaces the requesting admin may not see in OpenEverest.
+func (i *installer) instancesUsing(providerName string) ([]string, error) {
+	restCfg, err := genericclioptions.NewConfigFlags(false).ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+	client, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), everestCallTimeout)
+	defer cancel()
+	list, err := client.Resource(instanceGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, item := range list.Items {
+		ref, _, _ := unstructured.NestedString(item.Object, "spec", "providerRef", "name")
+		if ref == providerName {
+			out = append(out, item.GetNamespace()+"/"+item.GetName())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // releasesFor reports the Helm release backing each catalog entry, keyed by
 // "<type>:<name>". It gives the UI the real chart version (the Plugin CR and
 // provider labels carry the app version, which can differ) and in-flight or
@@ -405,7 +503,10 @@ type installerStatus struct {
 	Enabled    bool                   `json:"enabled"`
 	CanInstall bool                   `json:"canInstall"`
 	Releases   map[string]releaseInfo `json:"releases,omitempty"`
-	Error      string                 `json:"error,omitempty"`
+	// Self is the "<type>:<name>" key of plugin-hub's own catalog entry, which
+	// the installer refuses to modify; the UI hides one-click actions for it.
+	Self  string `json:"self,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.HandlerFunc {
@@ -437,50 +538,112 @@ func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.Handl
 			status.Error = "could not list Helm releases: " + err.Error()
 		}
 		status.Releases = releases
+		for _, ext := range index.Extensions {
+			if t, err := targetFromEntry(ext); err == nil && inst.isSelf(t) {
+				status.Self = ext.Type + ":" + ext.Name
+				break
+			}
+		}
 		writeJSON(w, http.StatusOK, status)
 	}
 }
 
 type actionRequest struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Confirm string `json:"confirm,omitempty"`
 }
 
-type helmOperation func(*installer, context.Context, installTarget) (releaseInfo, error)
+type helmOperation func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error)
+
+func registerInstallerRoutes(mux *http.ServeMux, inst *installer, cache *catalogCache) {
+	mux.HandleFunc("GET /api/installer", makeInstallerStatusHandler(inst, cache))
+	mux.HandleFunc("GET /api/uninstall/preflight", makeUninstallPreflightHandler(inst, cache))
+	mux.HandleFunc("POST /api/install", makeInstallerActionHandler(inst, cache, "install",
+		func(ctx context.Context, t installTarget, _ actionRequest) (releaseInfo, error) {
+			return inst.install(ctx, t)
+		}))
+	mux.HandleFunc("POST /api/upgrade", makeInstallerActionHandler(inst, cache, "upgrade",
+		func(ctx context.Context, t installTarget, _ actionRequest) (releaseInfo, error) {
+			return inst.upgrade(ctx, t)
+		}))
+	mux.HandleFunc("POST /api/uninstall", makeInstallerActionHandler(inst, cache, "uninstall",
+		func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
+			return inst.uninstall(ctx, t, req.Confirm)
+		}))
+}
+
+// authorizeTarget applies both installer gates and resolves the catalog
+// entry. On failure it has already written the HTTP error and returns false.
+func authorizeTarget(w http.ResponseWriter, r *http.Request, inst *installer, cache *catalogCache,
+	verb, extType, name string) (installTarget, callerIdentity, bool) {
+	if !inst.enabled {
+		apiError(w, http.StatusForbidden, "installer is disabled; enable it with --set installer.enabled=true")
+		return installTarget{}, callerIdentity{}, false
+	}
+	caller, err := resolveCaller(resolveAuthHeader(r))
+	if err != nil {
+		apiError(w, http.StatusBadGateway, "could not verify permissions: "+err.Error())
+		return installTarget{}, callerIdentity{}, false
+	}
+	if !caller.canAdmin {
+		apiError(w, http.StatusForbidden, "only administrators can "+verb+" extensions")
+		return installTarget{}, callerIdentity{}, false
+	}
+	index, err := loadIndex(cache)
+	if err != nil {
+		apiError(w, http.StatusBadGateway, err.Error())
+		return installTarget{}, callerIdentity{}, false
+	}
+	target, err := resolveTarget(index, extType, name)
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return installTarget{}, callerIdentity{}, false
+	}
+	if inst.isSelf(target) {
+		apiError(w, http.StatusBadRequest, "plugin-hub cannot "+verb+" itself; use helm directly")
+		return installTarget{}, callerIdentity{}, false
+	}
+	return target, caller, true
+}
+
+type uninstallPreflight struct {
+	Release   string   `json:"release"`
+	Namespace string   `json:"namespace"`
+	Instances []string `json:"instances"`
+}
+
+func makeUninstallPreflightHandler(inst *installer, cache *catalogCache) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		target, _, ok := authorizeTarget(w, r, inst, cache, "uninstall", q.Get("type"), q.Get("name"))
+		if !ok {
+			return
+		}
+		out := uninstallPreflight{Release: target.Release, Namespace: target.Namespace, Instances: []string{}}
+		if target.ProviderName != "" {
+			instances, err := inst.instancesUsing(target.ProviderName)
+			if err != nil {
+				apiError(w, http.StatusBadGateway, "could not check instances using this provider: "+err.Error())
+				return
+			}
+			if instances != nil {
+				out.Instances = instances
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
 
 func makeInstallerActionHandler(inst *installer, cache *catalogCache, verb string, op helmOperation) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !inst.enabled {
-			apiError(w, http.StatusForbidden, "installer is disabled; enable it with --set installer.enabled=true")
-			return
-		}
-		caller, err := resolveCaller(resolveAuthHeader(r))
-		if err != nil {
-			apiError(w, http.StatusBadGateway, "could not verify permissions: "+err.Error())
-			return
-		}
-		if !caller.canAdmin {
-			apiError(w, http.StatusForbidden, "only administrators can "+verb+" extensions")
-			return
-		}
-
 		var req actionRequest
 		if err := json.NewDecoder(io.LimitReader(r.Body, maxActionBodyBytes)).Decode(&req); err != nil {
 			apiError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		index, err := loadIndex(cache)
-		if err != nil {
-			apiError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		target, err := resolveTarget(index, req.Type, req.Name)
-		if err != nil {
-			apiError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if inst.isSelf(target) {
-			apiError(w, http.StatusBadRequest, "plugin-hub cannot "+verb+" itself; use helm directly")
+		target, caller, ok := authorizeTarget(w, r, inst, cache, verb, req.Type, req.Name)
+		if !ok {
 			return
 		}
 
@@ -489,9 +652,14 @@ func makeInstallerActionHandler(inst *installer, cache *catalogCache, verb strin
 
 		ctx, cancel := context.WithTimeout(r.Context(), helmOperationTimeout)
 		defer cancel()
-		info, err := op(inst, ctx, target)
+		info, err := op(ctx, target, req)
 		if err != nil {
 			log.Printf("installer: %s of %s %q failed: %v", verb, target.Type, target.Name, err)
+			var inUse errInstancesInUse
+			if errors.As(err, &inUse) {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "instances": inUse.instances})
+				return
+			}
 			var conflict errConflict
 			if errors.As(err, &conflict) {
 				apiError(w, http.StatusConflict, err.Error())

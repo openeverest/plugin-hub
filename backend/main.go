@@ -12,9 +12,9 @@
 //  4. Summary                  — server-side join of catalog + installed,
 //                                annotating each catalog entry with its
 //                                install status. Single round-trip for the UI.
-//  5. Installer (opt-in)       — admin-only one-click install / upgrade of
-//                                catalog entries via the Helm SDK. See
-//                                installer.go.
+//  5. Installer (opt-in)       — admin-only one-click install / upgrade /
+//                                uninstall of catalog entries via the Helm
+//                                SDK. See installer.go.
 package main
 
 import (
@@ -774,9 +774,7 @@ func main() {
 	mux.HandleFunc("GET /api/installed", makeInstalledHandler())
 	mux.HandleFunc("GET /api/summary", makeSummaryHandler(cache, icons))
 	mux.HandleFunc("GET /api/icon/{key}", icons.serve)
-	mux.HandleFunc("GET /api/installer", makeInstallerStatusHandler(inst, cache))
-	mux.HandleFunc("POST /api/install", makeInstallerActionHandler(inst, cache, "install", (*installer).install))
-	mux.HandleFunc("POST /api/upgrade", makeInstallerActionHandler(inst, cache, "upgrade", (*installer).upgrade))
+	registerInstallerRoutes(mux, inst, cache)
 
 	port := listenPort()
 	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s, installer: %t)",

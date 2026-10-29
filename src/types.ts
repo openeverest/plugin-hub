@@ -71,10 +71,19 @@ export interface InstallerStatus {
   enabled: boolean;
   canInstall: boolean;
   releases?: Record<string, ReleaseInfo>;
+  // "<type>:<name>" of plugin-hub's own entry; one-click actions are hidden for it.
+  self?: string;
   error?: string;
 }
 
 export type InstallerAction = 'install' | 'upgrade';
+
+export interface UninstallPreflight {
+  release: string;
+  namespace: string;
+  // "<namespace>/<name>" of instances still using this provider.
+  instances: string[];
+}
 
 export interface SummaryResponse {
   extensions?: CatalogEntry[];

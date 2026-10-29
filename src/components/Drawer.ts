@@ -1,4 +1,4 @@
-import { h } from '../runtime';
+import { React, h } from '../runtime';
 import { sx, maturityColor, typeColor } from '../styles';
 import {
   currentVersion,
@@ -11,9 +11,11 @@ import { IconImg, resolveIconSrc } from '../icons';
 import { CodeBlock } from './CodeBlock';
 import { DrawerShell } from './DrawerShell';
 import { InstallActions } from './InstallActions';
+import { UninstallDialog } from './UninstallDialog';
 import {
   Alert,
   Box,
+  Button,
   Typography,
   Chip,
   IconButton,
@@ -21,7 +23,13 @@ import {
   Divider,
   Paper,
 } from '@mui/material';
-import type { CatalogEntry, InstallerStatus, Prerequisite, ReleaseInfo } from '../types';
+import type {
+  CatalogEntry,
+  InstallerAction,
+  InstallerStatus,
+  Prerequisite,
+  ReleaseInfo,
+} from '../types';
 
 function humanizeKey(key: string): string {
   return key
@@ -185,10 +193,15 @@ export function Drawer(props: {
   entry: CatalogEntry;
   installer: InstallerStatus | null;
   notice: string | null;
-  onInstallerDone: (entry: CatalogEntry, release: ReleaseInfo) => void;
+  onInstallerDone: (
+    entry: CatalogEntry,
+    action: InstallerAction | 'uninstall',
+    release: ReleaseInfo
+  ) => void;
   onClose: () => void;
 }): any {
   const { entry, installer, notice, onInstallerDone, onClose } = props;
+  const [uninstallOpen, setUninstallOpen] = React.useState(false);
   const isGated = entry.access === 'gated';
   const version = isGated ? null : defaultChannelVersion(entry);
   const installedVersion = currentVersion(entry);
@@ -196,6 +209,8 @@ export function Drawer(props: {
   // Installed and up to date → nothing to do; gated → handled by its own section.
   const actionMode = isGated ? null : isOutdated ? 'upgrade' : entry.installed ? null : 'install';
   const releaseStatus = entry.release?.status;
+  const isSelf = installer?.self === `${entry.type}:${entry.name}`;
+  const canManage = !!installer?.canInstall && !isGated && !isSelf;
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
@@ -271,8 +286,32 @@ export function Drawer(props: {
                 { variant: 'caption', sx: { color: 'text.secondary' } },
                 `Phase: ${entry.installedPhase}`
               )
+            : null,
+          canManage
+            ? h(
+                Button,
+                {
+                  size: 'small',
+                  color: 'error',
+                  onClick: () => setUninstallOpen(true),
+                  sx: { ml: 'auto' },
+                  'data-testid': 'plugin-hub-uninstall',
+                },
+                'Uninstall'
+              )
             : null
         )
+      : null,
+
+    uninstallOpen
+      ? h(UninstallDialog, {
+          entry,
+          onClose: () => setUninstallOpen(false),
+          onDone: (release: ReleaseInfo) => {
+            setUninstallOpen(false);
+            onInstallerDone(entry, 'uninstall', release);
+          },
+        })
       : null,
 
     notice ? h(Alert, { severity: 'success', sx: { mb: 2 } }, notice) : null,
@@ -293,8 +332,8 @@ export function Drawer(props: {
           targetVersion: version,
           helmCommand:
             actionMode === 'upgrade' ? helmUpgradeCommand(entry) : helmInstallCommand(entry),
-          canInstallNow: !!installer?.canInstall,
-          onDone: (release: ReleaseInfo) => onInstallerDone(entry, release),
+          canInstallNow: canManage,
+          onDone: (release: ReleaseInfo) => onInstallerDone(entry, actionMode, release),
         })
       : null,
 

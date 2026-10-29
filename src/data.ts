@@ -9,6 +9,7 @@ import type {
   InstallerStatus,
   ReleaseInfo,
   SummaryResponse,
+  UninstallPreflight,
 } from './types';
 
 // fetchCatalog loads the extension catalog only (no install status). This is
@@ -63,6 +64,32 @@ export async function runInstallerAction(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: entry.type, name: entry.name }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error || `HTTP ${res.status}`);
+  }
+  return body as ReleaseInfo;
+}
+
+// Phrase the backend requires to uninstall a provider that still has instances.
+export const UNINSTALL_CONFIRM_PHRASE = 'UNINSTALL';
+
+export async function fetchUninstallPreflight(entry: CatalogEntry): Promise<UninstallPreflight> {
+  const params = new URLSearchParams({ type: entry.type, name: entry.name });
+  const res = await pluginFetch(`/api/uninstall/preflight?${params}`);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error || `HTTP ${res.status}`);
+  }
+  return body as UninstallPreflight;
+}
+
+export async function runUninstall(entry: CatalogEntry, confirm?: string): Promise<ReleaseInfo> {
+  const res = await pluginFetch('/api/uninstall', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: entry.type, name: entry.name, confirm }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {

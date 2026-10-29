@@ -94,3 +94,43 @@ func TestResolveTarget(t *testing.T) {
 		t.Fatal("gated entry must not resolve")
 	}
 }
+
+func TestTargetProviderName(t *testing.T) {
+	chartArtifacts := map[string]any{"chart": map[string]any{
+		"defaultChannel": "stable",
+		"channels":       map[string]any{"stable": map[string]any{"ref": "oci://example/chart", "version": "1.0.0"}},
+	}}
+	tests := []struct {
+		name string
+		ext  extensionSummary
+		want string
+	}{
+		{
+			name: "provider uses providerName when set",
+			ext: extensionSummary{Name: "percona-postgresql", Type: "provider", Artifacts: chartArtifacts,
+				Provider: map[string]any{"providerName": "provider-percona-postgresql"}},
+			want: "provider-percona-postgresql",
+		},
+		{
+			name: "provider falls back to catalog name",
+			ext:  extensionSummary{Name: "valkey", Type: "provider", Artifacts: chartArtifacts},
+			want: "valkey",
+		},
+		{
+			name: "plugins have no provider name",
+			ext:  extensionSummary{Name: "plugin-metrics", Type: "plugin", Artifacts: chartArtifacts},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := targetFromEntry(tt.ext)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.ProviderName != tt.want {
+				t.Fatalf("ProviderName = %q, want %q", got.ProviderName, tt.want)
+			}
+		})
+	}
+}

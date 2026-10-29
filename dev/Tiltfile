@@ -56,8 +56,8 @@ hub_build_cmd = os.getenv('HUB_BUILD_CMD', 'npm run build')
 # chart default (http://everest.everest-system.svc.cluster.local:8080).
 everest_api_url = os.getenv('EVEREST_API_URL', '')
 
-# Opt in to one-click install/upgrade from the UI (binds the plugin to
-# cluster-admin). See README "One-click install & upgrade".
+# Opt in to one-click install/upgrade/uninstall from the UI (binds the plugin
+# to cluster-admin). See README "One-click install, upgrade & uninstall".
 installer_enabled = str2bool(os.getenv('INSTALLER_ENABLED', 'false'))
 
 # Initial admin password for the Everest UI/API.

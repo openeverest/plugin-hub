@@ -45,7 +45,7 @@ cacheTTLSeconds: ""
 # installed providers. Defaults to "main" when empty.
 clusterName: ""
 
-# One-click install / upgrade of hub extensions from the UI. OPT-IN.
+# One-click install / upgrade / uninstall of hub extensions from the UI. OPT-IN.
 #
 # WARNING: enabling this binds the plugin-hub pod's ServiceAccount to
 # `installer.clusterRole` (cluster-admin by default) — providers ship CRDs and
