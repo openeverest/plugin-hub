@@ -12,6 +12,9 @@
 //  4. Summary                  — server-side join of catalog + installed,
 //                                annotating each catalog entry with its
 //                                install status. Single round-trip for the UI.
+//  5. Installer (opt-in)       — admin-only one-click install / upgrade /
+//                                uninstall of catalog entries via the Helm
+//                                SDK. See installer.go.
 package main
 
 import (
@@ -761,6 +764,7 @@ type summaryResponse struct {
 func main() {
 	cache := newCatalogCache(hubIndexURL(), cacheTTL())
 	icons := newIconProxy()
+	inst := newInstaller()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /main.js", handleBundle)
@@ -770,10 +774,11 @@ func main() {
 	mux.HandleFunc("GET /api/installed", makeInstalledHandler())
 	mux.HandleFunc("GET /api/summary", makeSummaryHandler(cache, icons))
 	mux.HandleFunc("GET /api/icon/{key}", icons.serve)
+	registerInstallerRoutes(mux, inst, cache)
 
 	port := listenPort()
-	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s)",
-		port, hubIndexURL(), everestAPIURL(), cacheTTL())
+	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s, installer: %t)",
+		port, hubIndexURL(), everestAPIURL(), cacheTTL(), inst.enabled)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

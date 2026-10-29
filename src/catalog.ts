@@ -118,6 +118,12 @@ export function isVersionOutdated(
   return compareSemver(installedVersion, latestVersion) < 0;
 }
 
+// The Helm chart version (admins with the installer enabled) is what catalog
+// channel versions refer to; fall back to the version reported by core.
+export function currentVersion(entry: CatalogEntry): string | undefined {
+  return entry.release?.chartVersion || entry.installedVersion;
+}
+
 // Generates the helm upgrade command for outdated extensions
 export function helmUpgradeCommand(entry: CatalogEntry): string {
   const chart = entry.artifacts?.chart;

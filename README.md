@@ -15,7 +15,7 @@ The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It
   An unknown entry name opens a "not found" drawer over the list; any other unknown path shows an in-plugin "Page not found" view.
 - **Backend-side join**: a single `/api/summary` call merges the hub catalog with the live `InstalledExtension` list so the UI does one round-trip.
 - **Stale-tolerant**: the upstream catalog is cached in-memory; if GitHub becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
-- **Browse-only in v1.** Each catalog entry shows a copy-pasteable `helm install …` command. Install/uninstall actions from the UI will land in a later release.
+- **Browse-only by default.** Each catalog entry shows a copy-pasteable `helm install …` / `helm upgrade …` command. Admins can opt in to one-click install, upgrade and uninstall — see [One-click install, upgrade & uninstall](#one-click-install-upgrade--uninstall-opt-in).
 
 Built from the [`openeverest/generic-plugin-template`](https://github.com/openeverest/generic-plugin-template) and following the [Generic Plugins spec (003)](https://github.com/openeverest/specs/blob/main/specs/003-generic-plugins.md).
 
@@ -57,6 +57,32 @@ Edit `charts/plugin-hub/values.yaml` (or pass `--set` flags):
 | `everestAPIURL` | OpenEverest API server URL (defaults to in-cluster DNS `everest.everest-system.svc.cluster.local:8080` when empty) | `""` |
 | `hubIndexURL` | Override the catalog index URL | official hub when empty |
 | `cacheTTLSeconds` | Catalog cache TTL (seconds) | `300` when empty |
+| `installer.enabled` | Enable one-click install/upgrade/uninstall from the UI (grants the plugin cluster-wide rights — see below) | `false` |
+| `installer.clusterRole` | ClusterRole bound to the plugin's ServiceAccount when the installer is enabled | `cluster-admin` |
+
+## One-click install, upgrade & uninstall (opt-in)
+
+Off by default. When enabled, OpenEverest admins get **Install now**, **Upgrade to &lt;version&gt;** and **Uninstall** buttons in the entry drawer; everyone else keeps seeing the copy-paste Helm commands.
+
+```bash
+helm upgrade plugin-hub oci://ghcr.io/openeverest/charts/plugin-hub \
+  -n everest-system --reuse-values --set installer.enabled=true
+```
+
+How it is gated:
+
+- **Operator opt-in.** Only with `installer.enabled=true` does the chart create a ServiceAccount bound to `installer.clusterRole`. With it off, the pod has no Kubernetes rights to install anything and the endpoints refuse every request. Turn it off again with `--set installer.enabled=false`; this removes the binding.
+- **Admins only.** Every request is checked against the caller's OpenEverest permissions (`GET /v1/permissions`, validated by core). Only users who may create `plugins` cluster-wide — the `admin` role by default — can install, upgrade or uninstall. When OpenEverest RBAC is disabled, every authenticated user counts as an admin, matching core.
+- **Catalog-only.** The UI sends just `{type, name}`. The chart reference, version (default channel), release name and namespace come from the hub catalog, so arbitrary charts cannot be deployed or removed.
+
+Behavior:
+
+- Install runs `helm install` with the formula's `install.helm.releaseName` / `namespace`; Upgrade runs `helm upgrade` on that release, keeping user-supplied values while picking up new chart defaults.
+- Upgrade availability is computed from the Helm release's chart version, so it is accurate even when a chart's `appVersion` differs.
+- Uninstall runs `helm uninstall` on that release after a confirmation dialog. If **instances still use a provider** (matched on `spec.providerRef.name` across all namespaces), the dialog lists them and the admin must type `UNINSTALL`; the backend enforces the same phrase, so the warning can't be skipped via the API. Helm keeps CRDs, so database resources are not deleted — they just stop being managed until the provider is reinstalled.
+- Not handled: prerequisites (e.g. cert-manager), CRD updates on upgrade or removal on uninstall (Helm limitation), releases installed under a non-default name, and plugin-hub modifying itself — use Helm directly for those.
+
+> **Security note.** With the installer enabled, plugin-hub effectively holds cluster-admin. Anyone who can change its image or its `hubIndexURL` can use those rights — treat the catalog URL as a root of trust.
 
 ## Local development
 
