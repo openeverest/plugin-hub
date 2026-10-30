@@ -1,6 +1,21 @@
 // Types matching the backend catalog/installed API shapes.
 
-export type ExtensionType = 'plugin' | 'provider' | string;
+// Open-ended so catalog entries of types this build doesn't know yet still load.
+export type ExtensionType = 'plugin' | 'provider' | 'integration' | string;
+
+export type MonitoringExecutionMode = 'ProviderManaged' | 'ExtensionManaged';
+
+// What an integration connects to. Only `monitoring` exists today; new areas
+// arrive with their own area-specific block.
+export interface IntegrationSpec {
+  area?: 'monitoring' | string;
+  monitoring?: {
+    classes?: string[];
+    executionModes?: Array<MonitoringExecutionMode | string>;
+    requires?: { metrics?: boolean; connection?: boolean };
+    nativeIntegration?: string;
+  };
+}
 
 export interface Prerequisite {
   name: string;
@@ -47,6 +62,8 @@ export interface CatalogEntry {
     providerName?: string;
     supportedEngines?: string[];
   };
+  // The hub index emits `null` for entries that aren't integrations.
+  integration?: IntegrationSpec | null;
   maturity?: string;
   capabilities?: Record<string, unknown>;
   access?: 'public' | 'gated';
@@ -76,7 +93,7 @@ export interface InstalledResponse {
 
 export interface FilterState {
   query: string;
-  type: 'all' | 'plugin' | 'provider';
+  type: 'all' | 'plugin' | 'provider' | 'integration';
   installedOnly: boolean;
   hideGated: boolean;
 }
