@@ -7,17 +7,20 @@ import {
   FormControlLabel,
   Checkbox,
 } from '@mui/material';
+import type { CatalogCounts } from '../catalog';
 import type { FilterState } from '../types';
 
 export function Toolbar(props: {
   filter: FilterState;
+  counts: CatalogCounts;
   onChange: (f: FilterState) => void;
 }): any {
-  const { filter, onChange } = props;
-  const chipDefs: Array<{ key: FilterState['type']; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'plugin', label: 'Plugins' },
-    { key: 'provider', label: 'Providers' },
+  const { filter, counts, onChange } = props;
+  const chipDefs: Array<{ key: FilterState['type']; label: string; count: number }> = [
+    { key: 'all', label: 'All', count: counts.total },
+    { key: 'plugin', label: 'Plugins', count: counts.plugin },
+    { key: 'provider', label: 'Providers', count: counts.provider },
+    { key: 'integration', label: 'Integrations', count: counts.integration },
   ];
   return h(
     Box,
@@ -36,7 +39,8 @@ export function Toolbar(props: {
       ...chipDefs.map((c) =>
         h(Chip, {
           key: c.key,
-          label: c.label,
+          label: `${c.label} (${c.count})`,
+          'data-testid': `plugin-hub-tab-${c.key}`,
           size: 'small',
           onClick: () => onChange({ ...filter, type: c.key }),
           color: filter.type === c.key ? 'primary' : 'default',

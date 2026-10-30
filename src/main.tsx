@@ -35,7 +35,7 @@ import {
   Paper,
 } from '@mui/material';
 import { fetchCatalog, fetchInstalled, installedKey } from './data';
-import { matchesFilter } from './catalog';
+import { countEntries, matchesFilter } from './catalog';
 import {
   drawerReturnPath,
   entryPath,
@@ -134,12 +134,7 @@ const HubPage = (props: PluginRouteProps): any => {
       : 'all';
   const filter: FilterState = { ...localFilter, type: listType };
   const filtered = entries.filter((e) => matchesFilter(e, filter));
-  const counts = {
-    total: entries.length,
-    plugin: entries.filter((e) => e.type === 'plugin').length,
-    provider: entries.filter((e) => e.type === 'provider').length,
-    installed: entries.filter((e) => e.installed).length,
-  };
+  const counts = countEntries(entries);
 
   const onFilterChange = ({ type, ...rest }: FilterState) => {
     setLocalFilter(rest);
@@ -186,7 +181,7 @@ const HubPage = (props: PluginRouteProps): any => {
           h(
             Typography,
             { variant: 'body2', sx: sx.subtitle },
-            `Browse OpenEverest plugins and providers. ${counts.total} available · ${
+            `Browse OpenEverest plugins, providers and integrations. ${counts.total} available · ${
               installedLoading ? 'checking installed…' : `${counts.installed} installed`
             }.`
           )
@@ -247,7 +242,7 @@ const HubPage = (props: PluginRouteProps): any => {
                 )
               : null,
 
-            h(Toolbar, { filter, onChange: onFilterChange }),
+            h(Toolbar, { filter, counts, onChange: onFilterChange }),
 
             loading && !data
               ? h(Box, { sx: sx.empty }, 'Loading catalog…')

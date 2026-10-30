@@ -19,7 +19,7 @@ import {
   Divider,
   Paper,
 } from '@mui/material';
-import type { CatalogEntry, Prerequisite } from '../types';
+import type { CatalogEntry, IntegrationSpec, Prerequisite } from '../types';
 
 function humanizeKey(key: string): string {
   return key
@@ -158,6 +158,77 @@ function renderCapabilities(caps: Record<string, unknown>): any {
     others.length
       ? h(Box, null, ...others.map(([k, v]) => renderCapabilityValue(k, v)))
       : null
+  );
+}
+
+const INTEGRATION_AREA_LABEL: Record<string, string> = {
+  monitoring: 'Monitoring',
+};
+
+const EXECUTION_MODE_LABEL: Record<string, string> = {
+  ProviderManaged: 'Rendered by the provider',
+  ExtensionManaged: 'Runs its own controller',
+};
+
+function labelFor(labels: Record<string, string>, key: string): string {
+  return Object.prototype.hasOwnProperty.call(labels, key) ? labels[key] : humanizeKey(key);
+}
+
+function monitoringRequirements(
+  monitoring: NonNullable<IntegrationSpec['monitoring']>
+): string[] {
+  const requirements: string[] = [];
+  if (monitoring.requires?.metrics) requirements.push('Providers must expose metrics');
+  if (monitoring.requires?.connection) {
+    requirements.push('Providers must accept monitoring connections');
+  }
+  if (monitoring.nativeIntegration) {
+    requirements.push(`Uses the provider's native ${monitoring.nativeIntegration} integration`);
+  }
+  return requirements;
+}
+
+const detailRow = (label: string, value: any): any =>
+  h(
+    Box,
+    { key: label, sx: sx.capRow },
+    h(Typography, { component: 'span', sx: sx.capKey }, label),
+    value
+  );
+
+const textLines = (lines: string[]): any =>
+  h(
+    Box,
+    null,
+    ...lines.map((line) => h(Typography, { key: line, variant: 'body2' }, line))
+  );
+
+function renderIntegration(integration: IntegrationSpec | null | undefined): any {
+  if (!integration?.area) return null;
+  const monitoring = integration.monitoring;
+  const classes = monitoring?.classes ?? [];
+  const executionModes = monitoring?.executionModes ?? [];
+  const requirements = monitoring ? monitoringRequirements(monitoring) : [];
+  return h(
+    Box,
+    { sx: sx.section, 'data-testid': 'plugin-hub-integration-details' },
+    sectionTitle('Integration'),
+    detailRow(
+      'Area',
+      h(
+        Typography,
+        { component: 'span', variant: 'body2' },
+        labelFor(INTEGRATION_AREA_LABEL, integration.area)
+      )
+    ),
+    classes.length ? detailRow('Monitoring classes', tagList(classes)) : null,
+    executionModes.length
+      ? detailRow(
+          'Execution',
+          textLines(executionModes.map((mode) => labelFor(EXECUTION_MODE_LABEL, mode)))
+        )
+      : null,
+    requirements.length ? detailRow('Requirements', textLines(requirements)) : null
   );
 }
 
@@ -314,6 +385,8 @@ export function Drawer(props: { entry: CatalogEntry; onClose: () => void }): any
           tagList(extensionPoints)
         )
       : null,
+
+    renderIntegration(entry.integration),
 
     supportedEngines.length
       ? h(

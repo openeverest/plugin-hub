@@ -728,6 +728,7 @@ type extensionSummary struct {
 	Install          map[string]any `json:"install"`
 	Plugin           map[string]any `json:"plugin,omitempty"`
 	Provider         map[string]any `json:"provider,omitempty"`
+	Integration      map[string]any `json:"integration,omitempty"`
 	Maturity         string         `json:"maturity,omitempty"`
 	Capabilities     map[string]any `json:"capabilities,omitempty"`
 	Access           string         `json:"access,omitempty"`
