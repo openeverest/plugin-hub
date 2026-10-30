@@ -107,6 +107,15 @@ export function maturityColor(maturity: string): MuiColor {
   return maturity.toLowerCase() === 'deprecated' ? 'error' : 'default';
 }
 
+const TYPE_COLOR: Record<string, MuiColor> = {
+  provider: 'info',
+  plugin: 'secondary',
+  integration: 'primary',
+};
+
+// Types this build doesn't know yet get a neutral chip.
 export function typeColor(type: string): MuiColor {
-  return type === 'provider' ? 'info' : 'secondary';
+  return Object.prototype.hasOwnProperty.call(TYPE_COLOR, type)
+    ? TYPE_COLOR[type]
+    : 'default';
 }

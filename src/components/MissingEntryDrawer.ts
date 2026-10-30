@@ -7,6 +7,7 @@ import type { EntryType } from '../routing';
 const TYPE_LABEL: Record<EntryType, { singular: string; plural: string }> = {
   plugin: { singular: 'Plugin', plural: 'plugins' },
   provider: { singular: 'Provider', plural: 'providers' },
+  integration: { singular: 'Integration', plural: 'integrations' },
 };
 
 export function MissingEntryDrawer(props: {

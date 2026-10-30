@@ -21,6 +21,25 @@ export function matchesFilter(entry: CatalogEntry, filter: FilterState): boolean
   return true;
 }
 
+export interface CatalogCounts {
+  total: number;
+  plugin: number;
+  provider: number;
+  integration: number;
+  installed: number;
+}
+
+export function countEntries(entries: CatalogEntry[]): CatalogCounts {
+  const ofType = (type: string) => entries.filter((e) => e.type === type).length;
+  return {
+    total: entries.length,
+    plugin: ofType('plugin'),
+    provider: ofType('provider'),
+    integration: ofType('integration'),
+    installed: entries.filter((e) => e.installed).length,
+  };
+}
+
 export function defaultChannelVersion(entry: CatalogEntry): string | null {
   const chart = entry.artifacts?.chart;
   if (!chart) return null;

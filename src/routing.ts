@@ -1,11 +1,13 @@
 // URL routing for the hub page. The host mounts the plugin at
 // /plugins/<pluginName>/* and passes the remainder as `subPath`:
 //
-//   ''                  → all extensions
-//   'plugins'           → plugins only
-//   'providers'         → providers only
-//   'plugins/<name>'    → plugins list + detail drawer for plugin <name>
-//   'providers/<name>'  → providers list + detail drawer for provider <name>
+//   ''                     → all extensions
+//   'plugins'              → plugins only
+//   'providers'            → providers only
+//   'integrations'         → integrations only
+//   'plugins/<name>'       → plugins list + detail drawer for plugin <name>
+//   'providers/<name>'     → providers list + detail drawer for provider <name>
+//   'integrations/<name>'  → integrations list + detail drawer for integration <name>
 //
 // The `subPath` prop is the single source of truth; navigation only updates
 // the URL and lets the host router feed the new `subPath` back in.
@@ -22,11 +24,13 @@ export type HubRoute =
 const SEGMENT_BY_TYPE: Record<EntryType, string> = {
   plugin: 'plugins',
   provider: 'providers',
+  integration: 'integrations',
 };
 
 const TYPE_BY_SEGMENT: Record<string, EntryType | undefined> = {
   plugins: 'plugin',
   providers: 'provider',
+  integrations: 'integration',
 };
 
 // Stored in history state when a drawer is opened from within the hub, so
@@ -36,7 +40,9 @@ const RETURN_TO_STATE_KEY = 'pluginHubReturnTo';
 export function parseHubPath(subPath: string | undefined): HubRoute {
   const segments = (subPath ?? '').split('/').filter(Boolean);
   if (segments.length === 0) return { kind: 'list', type: 'all' };
-  const type = TYPE_BY_SEGMENT[segments[0]];
+  const type = hasOwn(TYPE_BY_SEGMENT, segments[0])
+    ? TYPE_BY_SEGMENT[segments[0]]
+    : undefined;
   if (!type || segments.length > 2) return { kind: 'not-found' };
   if (segments.length === 1) return { kind: 'list', type };
   return { kind: 'entry', type, name: segments[1] };
@@ -50,8 +56,14 @@ export function entryPath(type: EntryType, name: string): string {
   return `${SEGMENT_BY_TYPE[type]}/${encodeURIComponent(name)}`;
 }
 
+// Own-property check so inherited keys like `constructor` aren't mistaken for
+// known types — catalog entries of unknown future types must stay inert.
+function hasOwn(record: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 export function isEntryType(type: string): type is EntryType {
-  return type in SEGMENT_BY_TYPE;
+  return hasOwn(SEGMENT_BY_TYPE, type);
 }
 
 function currentHistoryState(): Record<string, any> | null {

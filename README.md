@@ -1,18 +1,19 @@
 # OpenEverest Plugin Hub
 
-The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It surfaces every plugin and provider published in the [official catalog](https://github.com/openeverest/hub) and shows which ones are currently installed on your cluster.
+The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It surfaces every plugin, provider and integration published in the [official catalog](https://github.com/openeverest/hub) and shows which ones are currently installed on your cluster.
 
 - **Sidebar entry + dedicated route** registered as an OpenEverest generic plugin.
-- **Searchable, filterable table** of all catalog entries (plugins and providers) with install status, default-channel version, categories, and a per-entry detail drawer.
+- **Searchable, filterable table** of all catalog entries (plugins, providers and integrations) with install status, default-channel version, categories, and a per-entry detail drawer.
 - **Deep-linkable URLs** under `/plugins/plugin-hub/`:
 
   | Path | Shows |
   | --- | --- |
   | `/` | All extensions |
-  | `/plugins` · `/providers` | Only plugins · only providers |
-  | `/plugins/<name>` · `/providers/<name>` | That list with the entry's detail drawer open |
+  | `/plugins` · `/providers` · `/integrations` | Only plugins · only providers · only integrations |
+  | `/plugins/<name>` · `/providers/<name>` · `/integrations/<name>` | That list with the entry's detail drawer open |
 
   An unknown entry name opens a "not found" drawer over the list; any other unknown path shows an in-plugin "Page not found" view.
+- **Integrations** connect OpenEverest to an external system (today: monitoring). Their drawer shows the area, the MonitoringClass names the chart installs, how it runs (rendered by the provider or via its own controller), what providers must expose, and the external system's prerequisites.
 - **Backend-side join**: a single `/api/summary` call merges the hub catalog with the live `InstalledExtension` list so the UI does one round-trip.
 - **Stale-tolerant**: the upstream catalog is cached in-memory; if GitHub becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
 - **Install from the UI.** OpenEverest admins get one-click install, upgrade and uninstall (on by default; operators can opt out) — see [One-click install, upgrade & uninstall](#one-click-install-upgrade--uninstall). Every catalog entry also shows a copy-pasteable `helm install …` / `helm upgrade …` command.
@@ -100,6 +101,8 @@ For local development, set `INSTALLER_ENABLED=false` in `dev/.env` (this repo's 
 # Frontend
 npm install
 npm run dev                 # Vite dev server on http://localhost:3001
+npm test                    # Vitest (jsdom) behaviour tests
+npm run typecheck           # tsc --noEmit
 
 # Backend (in another terminal)
 npm run build               # produces dist/main.js for the backend to embed
