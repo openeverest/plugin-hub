@@ -38,6 +38,15 @@ everestAPIURL: ""
 # Override the catalog index URL. Defaults to the official OpenEverest hub.
 hubIndexURL: ""
 
+# Air-gapped support: mount a pre-populated catalog index from an existing
+# ConfigMap instead of fetching hubIndexURL from GitHub. Leave configMapName
+# empty to keep the default network fetch. The ConfigMap must contain a key
+# (see `key` below) holding the same JSON shape as the upstream hub index.
+# When set, this takes precedence over hubIndexURL.
+localIndex:
+  configMapName: ""
+  key: index.json
+
 # Catalog cache TTL in seconds. Defaults to 300 (5 minutes) when empty.
 cacheTTLSeconds: ""
 
