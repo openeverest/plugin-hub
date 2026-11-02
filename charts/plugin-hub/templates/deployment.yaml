@@ -19,6 +19,9 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.installer.enabled }}
+      serviceAccountName: {{ include "plugin-hub.fullname" . }}-installer
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -44,6 +47,16 @@ spec:
             {{- if .Values.clusterName }}
             - name: EVEREST_CLUSTER_NAME
               value: {{ .Values.clusterName | quote }}
+            {{- end }}
+            {{- if .Values.installer.enabled }}
+            - name: INSTALLER_ENABLED
+              value: "true"
+            - name: PLUGIN_HUB_RELEASE_NAME
+              value: {{ .Release.Name | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- end }}
           livenessProbe:
             httpGet:

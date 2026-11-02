@@ -54,6 +54,35 @@ export interface CatalogEntry {
   installed?: boolean;
   installedVersion?: string;
   installedPhase?: string;
+  // Helm release backing this entry; only known to admins when the installer
+  // is enabled. Carries the real chart version used for upgrade detection.
+  release?: ReleaseInfo;
+}
+
+export interface ReleaseInfo {
+  release: string;
+  namespace: string;
+  chartVersion: string;
+  appVersion?: string;
+  status: string;
+}
+
+export interface InstallerStatus {
+  enabled: boolean;
+  canInstall: boolean;
+  releases?: Record<string, ReleaseInfo>;
+  // "<type>:<name>" of plugin-hub's own entry; one-click actions are hidden for it.
+  self?: string;
+  error?: string;
+}
+
+export type InstallerAction = 'install' | 'upgrade';
+
+export interface UninstallPreflight {
+  release: string;
+  namespace: string;
+  // "<namespace>/<name>" of instances still using this provider.
+  instances: string[];
 }
 
 export interface SummaryResponse {

@@ -1,6 +1,6 @@
 import { h } from '../runtime';
 import { maturityColor, typeColor } from '../styles';
-import { defaultChannelVersion, isVersionOutdated } from '../catalog';
+import { currentVersion, defaultChannelVersion, isVersionOutdated } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import {
   TableRow,
@@ -17,7 +17,8 @@ export function Row(props: {
 }): any {
   const { entry, onSelect } = props;
   const version = defaultChannelVersion(entry);
-  const outdated = isVersionOutdated(entry.installedVersion, version);
+  const installedVersion = currentVersion(entry);
+  const outdated = isVersionOutdated(installedVersion, version);
   return h(
     TableRow,
     {
@@ -100,9 +101,9 @@ export function Row(props: {
         entry.installed
           ? h(Chip, {
               label: outdated
-                ? `Update available · ${entry.installedVersion} → ${version}`
-                : entry.installedVersion
-                ? `Installed · ${entry.installedVersion}`
+                ? `Update available · ${installedVersion} → ${version}`
+                : installedVersion
+                ? `Installed · ${installedVersion}`
                 : 'Installed',
               size: 'small',
               color: outdated ? 'warning' : 'success',
