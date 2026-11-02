@@ -1,12 +1,13 @@
-// One-click install / upgrade / uninstall of catalog extensions (opt-in).
+// One-click install / upgrade / uninstall of catalog extensions (opt-out).
 //
 // Two independent gates protect these endpoints:
 //
-//  1. Operator opt-in. INSTALLER_ENABLED is only set — and the pod only gets a
+//  1. Operator switch. INSTALLER_ENABLED is only set — and the pod only gets a
 //     ServiceAccount bound to a (cluster-admin by default) ClusterRole — when
-//     the chart is deployed with installer.enabled=true. With the flag off the
-//     endpoints refuse every request and the pod has no Kubernetes rights to
-//     install anything anyway.
+//     the chart's installer.enabled is true (the default). Operators who opt
+//     out get neither: the endpoints refuse every request and the pod has no
+//     Kubernetes rights to install anything anyway. The binary itself fails
+//     closed when the variable is unset.
 //  2. Per-request admin check. The caller's token is forwarded to the core
 //     /v1/permissions endpoint; only users allowed to create plugins (the
 //     admin role by default) may install or upgrade. Core validates the token,

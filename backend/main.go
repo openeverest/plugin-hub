@@ -12,7 +12,7 @@
 //  4. Summary                  — server-side join of catalog + installed,
 //                                annotating each catalog entry with its
 //                                install status. Single round-trip for the UI.
-//  5. Installer (opt-in)       — admin-only one-click install / upgrade /
+//  5. Installer (opt-out)      — admin-only one-click install / upgrade /
 //                                uninstall of catalog entries via the Helm
 //                                SDK. See installer.go.
 package main
