@@ -4,7 +4,9 @@
 // browser — a searchable, filterable list of available and installed
 // extensions. The catalog is pulled from the plugin's Go backend
 // (/api/catalog) and install status is loaded separately (/api/installed) so
-// a slow or failing everest API never blocks the catalog from rendering.
+// a slow or failing everest API never blocks the catalog from rendering. Which
+// releases work with the OpenEverest in the cluster (/api/compatibility) is
+// loaded separately too.
 //
 // The runtime contract follows the openeverest/generic-plugin-template
 // pattern: React and the host-authenticated fetch are injected via the
@@ -36,6 +38,7 @@ import {
 } from '@mui/material';
 import {
   fetchCatalog,
+  fetchCompatibility,
   fetchInstalled,
   fetchInstallerStatus,
   installedKey,
@@ -57,6 +60,7 @@ import { MissingEntryDrawer } from './components/MissingEntryDrawer';
 import { NotFoundPage } from './components/NotFoundPage';
 import type {
   CatalogEntry,
+  CompatibilityResponse,
   FilterState,
   InstalledItem,
   InstallerAction,
@@ -87,6 +91,7 @@ const HubPage = (props: PluginRouteProps): any => {
   const [installedMap, setInstalledMap] = React.useState<Map<string, InstalledItem> | null>(null);
   const [installedError, setInstalledError] = React.useState<string | null>(null);
   const [installer, setInstaller] = React.useState<InstallerStatus | null>(null);
+  const [compat, setCompat] = React.useState<CompatibilityResponse | null>(null);
   const [installerNotice, setInstallerNotice] = React.useState<{
     key: string;
     message: string;
@@ -129,6 +134,7 @@ const HubPage = (props: PluginRouteProps): any => {
       .finally(() => setLoading(false));
     setInstalledMap(null);
     loadInstalled();
+    fetchCompatibility().then(setCompat);
   }, [loadInstalled]);
 
   React.useEffect(() => {
@@ -158,19 +164,23 @@ const HubPage = (props: PluginRouteProps): any => {
   const installedLoading = installedMap === null;
   const entries = React.useMemo(() => {
     const raw = data?.extensions ?? [];
-    if (!installedMap) return raw;
     return raw.map((e) => {
       const key = installedKey(e.type, e.name);
+      const entryCompat = compat?.extensions?.[key];
+      const checked: CatalogEntry = entryCompat
+        ? { ...e, compat: { ...entryCompat, coreVersion: compat?.coreVersion } }
+        : e;
+      if (!installedMap) return checked;
       const installed = installedMap.get(key);
       const release = installer?.releases?.[key];
       return {
-        ...e,
+        ...checked,
         installed: !!installed || !!release,
         installedVersion: installed?.version || e.installedVersion,
         release,
       };
     });
-  }, [data, installedMap, installer]);
+  }, [data, installedMap, installer, compat]);
   const listType: ListType =
     route.kind === 'list'
       ? route.type

@@ -1,4 +1,4 @@
-import type { CatalogEntry } from '../types';
+import type { CatalogEntry, EntryCompatibility } from '../types';
 
 export const pluginEntry: CatalogEntry = {
   name: 'plugin-hub',
@@ -90,4 +90,71 @@ export const futureTypeEntry: CatalogEntry = {
   name: 'something-new',
   type: 'gizmo',
   displayName: 'Something New',
+};
+
+const notDeclared =
+  'does not declare the OpenEverest it was built for, so its compatibility cannot be checked';
+
+// Compatibility as /api/compatibility reports it for a cluster running
+// OpenEverest 2.1.0: the head needs a newer OpenEverest, the release before it
+// works, the oldest one predates stamping.
+export const mongodbCompat: EntryCompatibility = {
+  channel: 'stable',
+  head: '0.8.0',
+  recommended: '0.7.0',
+  coreVersion: '2.1.0',
+  releases: [
+    {
+      version: '0.8.0',
+      contractVersion: '2.2.0',
+      status: 'False',
+      reason: 'CoreTooOld',
+      message: 'needs OpenEverest 2.2.0 or later',
+      needs: '2.2.0',
+    },
+    {
+      version: '0.7.0',
+      contractVersion: '2.1.0',
+      status: 'True',
+      reason: 'Supported',
+      message: 'works with this version of OpenEverest',
+    },
+    { version: '0.6.0', status: 'Unknown', reason: 'Unversioned', message: notDeclared },
+  ],
+};
+
+export const mongodbEntry: CatalogEntry = {
+  name: 'percona-server-mongodb',
+  type: 'provider',
+  displayName: 'MongoDB',
+  artifacts: {
+    chart: {
+      defaultChannel: 'stable',
+      channels: {
+        stable: {
+          ref: 'oci://ghcr.io/openeverest/charts/provider-percona-server-mongodb',
+          version: '0.8.0',
+          head: '0.8.0',
+        },
+      },
+    },
+  },
+  install: { helm: { releaseName: 'percona-server-mongodb', namespace: 'everest-system' } },
+  integration: null,
+};
+
+// Only the head is compatible-checked and it needs a newer OpenEverest.
+export const blockedCompat: EntryCompatibility = {
+  ...mongodbCompat,
+  recommended: undefined,
+  releases: [mongodbCompat.releases[0]],
+};
+
+// Only unstamped releases: allowed, with a notice.
+export const undeclaredCompat: EntryCompatibility = {
+  channel: 'stable',
+  head: '0.8.0',
+  recommended: '0.8.0',
+  coreVersion: '2.1.0',
+  releases: [{ version: '0.8.0', status: 'Unknown', reason: 'Unversioned', message: notDeclared }],
 };

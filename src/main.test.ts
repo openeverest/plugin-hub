@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { PluginRouteProps } from '@openeverest/plugin-sdk';
 import register from './main';
 import {
+  blockedCompat,
   corootIntegration,
   futureTypeEntry,
   pluginEntry,
@@ -26,15 +27,19 @@ const catalog = {
 const jsonResponse = (body: unknown) =>
   new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
 
-function registerHubPage(): React.ComponentType<PluginRouteProps> {
+const responses = (compatibility: unknown): Record<string, unknown> => ({
+  '/api/catalog': catalog,
+  '/api/compatibility': compatibility,
+});
+
+function registerHubPage(compatibility: unknown = {}): React.ComponentType<PluginRouteProps> {
   let routeComponent: React.ComponentType<PluginRouteProps> | undefined;
   register({
     React,
     registerExtension: (extension) => {
       if (extension.type === 'route') routeComponent = extension.component;
     },
-    fetch: async (path) =>
-      jsonResponse(path === '/api/catalog' ? catalog : { items: [] }),
+    fetch: async (path) => jsonResponse(responses(compatibility)[path] ?? { items: [] }),
     basePath: '/v1/clusters/test/plugins/plugin-hub',
     cssNonce: '',
     hostVersion: 'test',
@@ -44,8 +49,8 @@ function registerHubPage(): React.ComponentType<PluginRouteProps> {
   return routeComponent;
 }
 
-const renderHub = (subPath: string) =>
-  render(React.createElement(registerHubPage(), { pluginName: 'plugin-hub', subPath }));
+const renderHub = (subPath: string, compatibility?: unknown) =>
+  render(React.createElement(registerHubPage(compatibility), { pluginName: 'plugin-hub', subPath }));
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/plugins/plugin-hub');
@@ -96,5 +101,47 @@ describe('Hub page with integrations', () => {
     renderHub('');
     fireEvent.click(await screen.findByText('Something New'));
     expect(window.location.pathname).toBe('/plugins/plugin-hub');
+  });
+});
+
+describe('Hub page compatibility', () => {
+  it('marks entries no release of which works with the cluster', async () => {
+    renderHub('integrations', {
+      coreVersion: '2.1.0',
+      extensions: {
+        'integration:monitoring-pmm': {
+          ...blockedCompat,
+          head: '0.1.0',
+          releases: [{ ...blockedCompat.releases[0], version: '0.1.0' }],
+        },
+      },
+    });
+    const chip = await screen.findByTestId('plugin-hub-row-incompatible');
+    expect(chip.textContent).toBe('Needs OpenEverest 2.2.0');
+    expect(screen.getAllByTestId('plugin-hub-row-incompatible')).toHaveLength(1);
+  });
+
+  it('shows the compatibility of the offered release in the drawer', async () => {
+    renderHub('integrations/monitoring-pmm', {
+      coreVersion: '2.1.0',
+      extensions: {
+        'integration:monitoring-pmm': {
+          channel: 'stable',
+          head: '0.1.0',
+          recommended: '0.1.0',
+          releases: [
+            {
+              version: '0.1.0',
+              status: 'True',
+              reason: 'Supported',
+              message: 'works with this version of OpenEverest',
+            },
+          ],
+        },
+      },
+    });
+    expect((await screen.findByTestId('plugin-hub-compatibility')).textContent).toBe(
+      'Compatibility: Works with this OpenEverest (2.1.0)'
+    );
   });
 });

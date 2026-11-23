@@ -43,11 +43,10 @@ export interface CatalogEntry {
   categories?: string[];
   keywords?: string[];
   maintainers?: Array<{ name?: string; email?: string; github?: string }>;
-  compatibility?: { openeverest?: string };
   artifacts?: {
     chart?: {
       defaultChannel?: string;
-      channels?: Record<string, { ref?: string; version?: string }>;
+      channels?: Record<string, ChartChannel>;
     };
   };
   install?: {
@@ -74,6 +73,60 @@ export interface CatalogEntry {
   // Helm release backing this entry; only known to admins when the installer
   // is enabled. Carries the real chart version used for upgrade detection.
   release?: ReleaseInfo;
+  // Which releases work with the OpenEverest in the cluster; absent when it
+  // could not be checked.
+  compat?: EntryCompatibility;
+}
+
+export interface ChartChannel {
+  ref?: string;
+  // The channel head, the newest release; `head` repeats it in indexes that
+  // list releases.
+  version?: string;
+  head?: string;
+  // Newest first. Older indexes only know the head.
+  releases?: CatalogRelease[];
+}
+
+export interface CatalogRelease {
+  version: string;
+  digest?: string;
+  // The OpenEverest contract version the chart was built against; absent when
+  // the chart does not declare it.
+  contractVersion?: string;
+  kubeVersion?: string;
+}
+
+// Result of checking one release against the OpenEverest in the cluster.
+// True: works with it. False: does not; installing needs an acknowledgement.
+// Unknown: cannot be checked (e.g. the release does not declare it); allowed.
+export interface ReleaseVerdict {
+  version: string;
+  contractVersion?: string;
+  status: 'True' | 'False' | 'Unknown';
+  reason: string;
+  // Reads after the extension name and version, e.g. "needs OpenEverest 2.1.0 or later".
+  message: string;
+  // The OpenEverest release a release that is too new needs.
+  needs?: string;
+}
+
+export interface EntryCompatibility {
+  channel: string;
+  head: string;
+  // The newest release that can be installed without an acknowledgement;
+  // absent when none can.
+  recommended?: string;
+  releases: ReleaseVerdict[];
+  // The OpenEverest release in the cluster, copied from the response.
+  coreVersion?: string;
+}
+
+export interface CompatibilityResponse {
+  coreVersion?: string;
+  // Keyed by "<type>:<name>".
+  extensions?: Record<string, EntryCompatibility>;
+  error?: string;
 }
 
 export interface ReleaseInfo {
@@ -82,6 +135,9 @@ export interface ReleaseInfo {
   chartVersion: string;
   appVersion?: string;
   status: string;
+  // The release was never deployed: its first install failed. Installing
+  // again replaces it.
+  failedInstall?: boolean;
 }
 
 export interface InstallerStatus {
@@ -94,6 +150,14 @@ export interface InstallerStatus {
 }
 
 export type InstallerAction = 'install' | 'upgrade';
+
+export interface InstallerActionOptions {
+  // A release of the entry's catalog channel; the backend defaults to the
+  // newest one that works with the cluster.
+  version?: string;
+  // Install a release that does not work with the cluster anyway.
+  acknowledgeIncompatible?: boolean;
+}
 
 export interface UninstallPreflight {
   release: string;

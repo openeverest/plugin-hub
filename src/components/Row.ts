@@ -1,6 +1,13 @@
 import { h } from '../runtime';
 import { maturityColor, typeColor } from '../styles';
-import { currentVersion, defaultChannelVersion, isVersionOutdated } from '../catalog';
+import {
+  currentVersion,
+  defaultChannelVersion,
+  incompatibleHead,
+  incompatibleLabel,
+  isVersionOutdated,
+  offeredVersion,
+} from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import {
   TableRow,
@@ -16,9 +23,13 @@ export function Row(props: {
   onSelect: (e: CatalogEntry) => void;
 }): any {
   const { entry, onSelect } = props;
-  const version = defaultChannelVersion(entry);
+  // The newest release that works with this OpenEverest; when none does, the
+  // row shows the newest release and what it needs.
+  const offered = offeredVersion(entry);
+  const version = offered ?? defaultChannelVersion(entry);
+  const blockedBy = offered === null && entry.access !== 'gated' ? incompatibleHead(entry) : undefined;
   const installedVersion = currentVersion(entry);
-  const outdated = isVersionOutdated(installedVersion, version);
+  const outdated = isVersionOutdated(installedVersion, offered);
   return h(
     TableRow,
     {
@@ -56,7 +67,20 @@ export function Row(props: {
         sx: { textTransform: 'capitalize' },
       })
     ),
-    h(TableCell, null, version ?? '—'),
+    h(
+      TableCell,
+      null,
+      version ?? '—',
+      blockedBy
+        ? h(Chip, {
+            label: incompatibleLabel(blockedBy),
+            size: 'small',
+            variant: 'outlined',
+            sx: { ml: 1 },
+            'data-testid': 'plugin-hub-row-incompatible',
+          })
+        : null
+    ),
     h(
       TableCell,
       null,

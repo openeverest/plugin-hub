@@ -13,11 +13,18 @@
 //     admin role by default) may install or upgrade. Core validates the token,
 //     so the plugin never trusts client-supplied identity.
 //
-// The client only ever sends {type, name}. The chart reference, version,
-// release name and namespace are resolved from the cached hub catalog, so the
-// endpoint cannot be used to deploy or remove arbitrary releases. Uninstalling
-// a provider that still has instances requires an explicit confirmation
-// phrase, enforced here rather than only in the UI.
+// The client sends {type, name}, and optionally a version, which must be a
+// release of the entry's catalog channel. The chart reference, release name
+// and namespace are resolved from the cached hub catalog, so the endpoint
+// cannot be used to deploy or remove arbitrary releases. Uninstalling a
+// provider that still has instances requires an explicit confirmation phrase,
+// enforced here rather than only in the UI.
+//
+// Before Helm runs, install and upgrade check that the chart works with the
+// OpenEverest in the cluster (see compat.go): the installer runs Helm with
+// cluster-wide rights, so it must not apply a chart that core will reject or
+// misread. An incompatible release is refused unless the request
+// acknowledges it.
 package main
 
 import (
@@ -34,12 +41,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openeverest/openeverest/v2/contract"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -64,6 +74,8 @@ type installer struct {
 
 	settings *cli.EnvSettings
 	registry *registry.Client
+	// crds reads core CRDs, which carry the compatibility window.
+	crds func() (crdGetter, error)
 	// Helm operations are serialized: this is an admin-only, low-traffic path
 	// and serializing avoids racing two operations on the same release.
 	mu sync.Mutex
@@ -74,6 +86,7 @@ func newInstaller() *installer {
 		enabled:       strings.EqualFold(os.Getenv("INSTALLER_ENABLED"), "true"),
 		selfRelease:   os.Getenv("PLUGIN_HUB_RELEASE_NAME"),
 		selfNamespace: os.Getenv("POD_NAMESPACE"),
+		crds:          clusterCRDGetter,
 	}
 	if !inst.enabled {
 		return inst
@@ -100,6 +113,9 @@ func (i *installer) actionConfig(namespace string) (*action.Configuration, error
 		return nil, err
 	}
 	cfg.RegistryClient = i.registry
+	if kc, ok := cfg.KubeClient.(*kube.Client); ok {
+		cfg.KubeClient = &hookLogClient{Client: kc}
+	}
 	return cfg, nil
 }
 
@@ -193,10 +209,13 @@ func isClusterWideObject(object, cluster string) bool {
 // ---------------------------------------------------------------------------
 
 type installTarget struct {
-	Type      string
-	Name      string
-	ChartRef  string
-	Version   string
+	Type     string
+	Name     string
+	ChartRef string
+	// Version is the head of the default channel, its newest release.
+	Version string
+	// Releases lists the channel's releases, newest first.
+	Releases  []catalogRelease
 	Release   string
 	Namespace string
 	// ProviderName is the Provider CR name instances reference via
@@ -218,36 +237,25 @@ func resolveTarget(index extensionIndex, extType, name string) (installTarget, e
 }
 
 func targetFromEntry(ext extensionSummary) (installTarget, error) {
-	var artifacts struct {
-		Chart struct {
-			DefaultChannel string `json:"defaultChannel"`
-			Channels       map[string]struct {
-				Ref     string `json:"ref"`
-				Version string `json:"version"`
-			} `json:"channels"`
-		} `json:"chart"`
-	}
 	var install struct {
 		Helm struct {
 			ReleaseName string `json:"releaseName"`
 			Namespace   string `json:"namespace"`
 		} `json:"helm"`
 	}
-	if err := remarshal(ext.Artifacts, &artifacts); err != nil {
-		return installTarget{}, fmt.Errorf("invalid artifacts: %w", err)
+	_, channel, err := decodeChannel(ext)
+	if err != nil {
+		return installTarget{}, err
 	}
 	if err := remarshal(ext.Install, &install); err != nil {
 		return installTarget{}, fmt.Errorf("invalid install spec: %w", err)
-	}
-	channel, ok := artifacts.Chart.Channels[artifacts.Chart.DefaultChannel]
-	if !ok || channel.Ref == "" || channel.Version == "" {
-		return installTarget{}, errors.New("catalog entry has no installable default channel")
 	}
 	target := installTarget{
 		Type:      ext.Type,
 		Name:      ext.Name,
 		ChartRef:  channel.Ref,
-		Version:   channel.Version,
+		Version:   channel.head(),
+		Releases:  channel.releases(),
 		Release:   install.Helm.ReleaseName,
 		Namespace: install.Helm.Namespace,
 	}
@@ -266,17 +274,6 @@ func targetFromEntry(ext extensionSummary) (installTarget, error) {
 	return target, nil
 }
 
-func remarshal(in any, out any) error {
-	if in == nil {
-		return nil
-	}
-	raw, err := json.Marshal(in)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(raw, out)
-}
-
 // ---------------------------------------------------------------------------
 // Helm operations
 // ---------------------------------------------------------------------------
@@ -287,6 +284,9 @@ type releaseInfo struct {
 	ChartVersion string `json:"chartVersion"`
 	AppVersion   string `json:"appVersion,omitempty"`
 	Status       string `json:"status"`
+	// FailedInstall is set when the release was never deployed: its first
+	// install failed. Installing again replaces it.
+	FailedInstall bool `json:"failedInstall,omitempty"`
 }
 
 func toReleaseInfo(rel *release.Release) releaseInfo {
@@ -314,7 +314,60 @@ func (i *installer) loadChart(opts *action.ChartPathOptions, ref string) (*chart
 	return loader.Load(path)
 }
 
-func (i *installer) install(ctx context.Context, t installTarget) (releaseInfo, error) {
+// compatCheck reads the window the cluster serves to t's type of extension and
+// checks the catalog's releases of t against it.
+func (i *installer) compatCheck(ctx context.Context, t installTarget) (compatCheck, error) {
+	get, err := i.crds()
+	if err != nil {
+		return compatCheck{}, fmt.Errorf("could not read the OpenEverest version: %w", err)
+	}
+	crds, err := readCoreCRDs(ctx, get, coreCRDsFor(t.Type))
+	if err != nil {
+		return compatCheck{}, fmt.Errorf("could not read the OpenEverest version: %w", err)
+	}
+	w, ok := crds.windowFor(t.Type)
+	if !ok {
+		log.Printf("installer: none of %s is in the cluster; %s is not checked for compatibility",
+			strings.Join(coreCRDsFor(t.Type), ", "), t.Name)
+		return compatCheck{}, nil
+	}
+	return compatCheck{window: w, checked: true, verdicts: verdicts(t.Releases, w)}, nil
+}
+
+// prepareChart picks the release to install, pulls it and checks its stamp.
+// installed is the chart version of the release being upgraded, "" on
+// install. It returns the chart and the values to pass to Helm.
+func (i *installer) prepareChart(ctx context.Context, opts *action.ChartPathOptions, t installTarget,
+	req actionRequest, installed string) (*chart.Chart, map[string]any, error) {
+	check, err := i.compatCheck(ctx, t)
+	if err != nil {
+		return nil, nil, err
+	}
+	version, err := pickVersion(t, req.Version, check)
+	if err != nil {
+		return nil, nil, errBadRequest{err.Error()}
+	}
+	if installed != "" && contract.Valid(installed) && contract.Valid(version) && contract.Compare(version, installed) < 0 {
+		return nil, nil, errConflict{fmt.Sprintf(
+			"%s %s is installed; %s is older and the hub does not downgrade — use helm directly", t.Name, installed, version)}
+	}
+	opts.Version = version
+	ch, err := i.loadChart(opts, t.ChartRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	var annotations map[string]string
+	if ch.Metadata != nil {
+		annotations = ch.Metadata.Annotations
+	}
+	vals, err := admitChart(t, version, annotations, check, req.AcknowledgeIncompatible)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ch, vals, nil
+}
+
+func (i *installer) install(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -322,30 +375,72 @@ func (i *installer) install(ctx context.Context, t installTarget) (releaseInfo, 
 	if err != nil {
 		return releaseInfo{}, err
 	}
-	if _, err := action.NewGet(cfg).Run(t.Release); err == nil {
-		return releaseInfo{}, errConflict{fmt.Sprintf("release %s/%s already exists", t.Namespace, t.Release)}
-	}
-
-	inst := action.NewInstall(cfg)
-	inst.ReleaseName = t.Release
-	inst.Namespace = t.Namespace
-	inst.CreateNamespace = true
-	inst.Version = t.Version
-	inst.Timeout = helmOperationTimeout
-	inst.SetRegistryClient(i.registry)
-
-	ch, err := i.loadChart(&inst.ChartPathOptions, t.ChartRef)
+	replace, err := replaceableRelease(cfg, t)
 	if err != nil {
 		return releaseInfo{}, err
 	}
-	rel, err := inst.RunWithContext(ctx, ch, nil)
+
+	inst := newInstallAction(cfg, t, replace)
+	inst.SetRegistryClient(i.registry)
+	ch, vals, err := i.prepareChart(ctx, &inst.ChartPathOptions, t, req, "")
+	if err != nil {
+		return releaseInfo{}, err
+	}
+	rel, err := inst.RunWithContext(ctx, ch, vals)
 	if err != nil {
 		return releaseInfo{}, err
 	}
 	return toReleaseInfo(rel), nil
 }
 
-func (i *installer) upgrade(ctx context.Context, t installTarget) (releaseInfo, error) {
+func newInstallAction(cfg *action.Configuration, t installTarget, replace bool) *action.Install {
+	inst := action.NewInstall(cfg)
+	inst.ReleaseName = t.Release
+	inst.Namespace = t.Namespace
+	inst.CreateNamespace = true
+	inst.Replace = replace
+	inst.Timeout = helmOperationTimeout
+	return inst
+}
+
+// replaceableRelease reports whether installing t must replace an existing
+// release, which is the case when its first install failed. Helm refuses to
+// install over such a release and cannot upgrade it either ("has no deployed
+// releases"), so without this a failed first install could only be retried
+// after a manual helm uninstall. Any other existing release is a conflict.
+func replaceableRelease(cfg *action.Configuration, t installTarget) (bool, error) {
+	hist, err := cfg.Releases.History(t.Release)
+	if errors.Is(err, driver.ErrReleaseNotFound) || (err == nil && len(hist) == 0) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read history of release %s/%s: %w", t.Namespace, t.Release, err)
+	}
+	if neverDeployed(hist) {
+		return true, nil
+	}
+	return false, errConflict{fmt.Sprintf("release %s/%s already exists", t.Namespace, t.Release)}
+}
+
+// neverDeployed reports whether the latest revision of a release failed and no
+// revision was ever deployed (a superseded revision was deployed once).
+func neverDeployed(hist []*release.Release) bool {
+	var latest *release.Release
+	for _, r := range hist {
+		if r.Info == nil {
+			continue
+		}
+		if r.Info.Status == release.StatusDeployed || r.Info.Status == release.StatusSuperseded {
+			return false
+		}
+		if latest == nil || r.Version > latest.Version {
+			latest = r
+		}
+	}
+	return latest != nil && latest.Info.Status == release.StatusFailed
+}
+
+func (i *installer) upgrade(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -353,25 +448,29 @@ func (i *installer) upgrade(ctx context.Context, t installTarget) (releaseInfo, 
 	if err != nil {
 		return releaseInfo{}, err
 	}
-	if _, err := action.NewGet(cfg).Run(t.Release); err != nil {
+	current, err := action.NewGet(cfg).Run(t.Release)
+	if err != nil {
 		return releaseInfo{}, errConflict{fmt.Sprintf(
 			"release %s/%s not found; it may have been installed under a different name — upgrade it with helm directly",
 			t.Namespace, t.Release)}
 	}
+	if hist, err := cfg.Releases.History(t.Release); err == nil && neverDeployed(hist) {
+		return releaseInfo{}, errConflict{fmt.Sprintf(
+			"the first install of release %s/%s failed, so there is nothing to upgrade; install it again", t.Namespace, t.Release)}
+	}
 
 	up := action.NewUpgrade(cfg)
 	up.Namespace = t.Namespace
-	up.Version = t.Version
 	up.Timeout = helmOperationTimeout
 	// Keep the admin's custom values, but pick up new chart defaults.
 	up.ResetThenReuseValues = true
 	up.SetRegistryClient(i.registry)
 
-	ch, err := i.loadChart(&up.ChartPathOptions, t.ChartRef)
+	ch, vals, err := i.prepareChart(ctx, &up.ChartPathOptions, t, req, toReleaseInfo(current).ChartVersion)
 	if err != nil {
 		return releaseInfo{}, err
 	}
-	rel, err := up.RunWithContext(ctx, t.Release, ch, nil)
+	rel, err := up.RunWithContext(ctx, t.Release, ch, vals)
 	if err != nil {
 		return releaseInfo{}, err
 	}
@@ -486,15 +585,37 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 			continue
 		}
 		if rel, ok := byKey[t.Namespace+"/"+t.Release]; ok {
-			out[ext.Type+":"+ext.Name] = toReleaseInfo(rel)
+			info := toReleaseInfo(rel)
+			if rel.Info != nil && rel.Info.Status == release.StatusFailed {
+				info.FailedInstall = failedFirstInstall(cfg, rel)
+			}
+			out[ext.Type+":"+ext.Name] = info
 		}
 	}
 	return out, nil
 }
 
+func failedFirstInstall(cfg *action.Configuration, rel *release.Release) bool {
+	hist, err := cfg.Releases.History(rel.Name)
+	if err != nil {
+		return false
+	}
+	var own []*release.Release
+	for _, r := range hist {
+		if r.Namespace == rel.Namespace {
+			own = append(own, r)
+		}
+	}
+	return neverDeployed(own)
+}
+
 type errConflict struct{ msg string }
 
 func (e errConflict) Error() string { return e.msg }
+
+type errBadRequest struct{ msg string }
+
+func (e errBadRequest) Error() string { return e.msg }
 
 // ---------------------------------------------------------------------------
 // HTTP handlers
@@ -553,6 +674,12 @@ type actionRequest struct {
 	Type    string `json:"type"`
 	Name    string `json:"name"`
 	Confirm string `json:"confirm,omitempty"`
+	// Version picks a release of the catalog channel; by default the newest
+	// one that works with the cluster.
+	Version string `json:"version,omitempty"`
+	// AcknowledgeIncompatible installs a release that does not work with
+	// the cluster anyway.
+	AcknowledgeIncompatible bool `json:"acknowledgeIncompatible,omitempty"`
 }
 
 type helmOperation func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error)
@@ -561,12 +688,12 @@ func registerInstallerRoutes(mux *http.ServeMux, inst *installer, cache *catalog
 	mux.HandleFunc("GET /api/installer", makeInstallerStatusHandler(inst, cache))
 	mux.HandleFunc("GET /api/uninstall/preflight", makeUninstallPreflightHandler(inst, cache))
 	mux.HandleFunc("POST /api/install", makeInstallerActionHandler(inst, cache, "install",
-		func(ctx context.Context, t installTarget, _ actionRequest) (releaseInfo, error) {
-			return inst.install(ctx, t)
+		func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
+			return inst.install(ctx, t, req)
 		}))
 	mux.HandleFunc("POST /api/upgrade", makeInstallerActionHandler(inst, cache, "upgrade",
-		func(ctx context.Context, t installTarget, _ actionRequest) (releaseInfo, error) {
-			return inst.upgrade(ctx, t)
+		func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
+			return inst.upgrade(ctx, t, req)
 		}))
 	mux.HandleFunc("POST /api/uninstall", makeInstallerActionHandler(inst, cache, "uninstall",
 		func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
@@ -648,8 +775,13 @@ func makeInstallerActionHandler(inst *installer, cache *catalogCache, verb strin
 			return
 		}
 
-		log.Printf("installer: %s requested %s of %s %q (%s@%s → %s/%s)",
-			caller.subject, verb, target.Type, target.Name, target.ChartRef, target.Version, target.Namespace, target.Release)
+		requested := req.Version
+		if requested == "" {
+			requested = "newest compatible"
+		}
+		log.Printf("installer: %s requested %s of %s %q (%s@%s → %s/%s, acknowledge incompatible: %t)",
+			caller.subject, verb, target.Type, target.Name, target.ChartRef, requested, target.Namespace, target.Release,
+			req.AcknowledgeIncompatible)
 
 		ctx, cancel := context.WithTimeout(r.Context(), helmOperationTimeout)
 		defer cancel()
@@ -664,6 +796,16 @@ func makeInstallerActionHandler(inst *installer, cache *catalogCache, verb strin
 			var conflict errConflict
 			if errors.As(err, &conflict) {
 				apiError(w, http.StatusConflict, err.Error())
+				return
+			}
+			var incompatible errIncompatible
+			if errors.As(err, &incompatible) {
+				writeJSON(w, http.StatusConflict, incompatible.body())
+				return
+			}
+			var badRequest errBadRequest
+			if errors.As(err, &badRequest) {
+				apiError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			apiError(w, http.StatusInternalServerError, verb+" failed: "+err.Error())

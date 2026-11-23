@@ -6,7 +6,7 @@
 # Runs on the build host's platform and cross-compiles for the target
 # platform, so multi-arch builds need no QEMU emulation.
 # ──────────────────────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS backend-builder
 
 ARG TARGETOS
 ARG TARGETARCH

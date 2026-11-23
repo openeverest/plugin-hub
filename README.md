@@ -17,6 +17,7 @@ The Hub plugin for [OpenEverest](https://github.com/openeverest/openeverest). It
 - **Backend-side join**: a single `/api/summary` call merges the hub catalog with the live `InstalledExtension` list so the UI does one round-trip.
 - **Stale-tolerant**: the upstream catalog is cached in-memory; if GitHub becomes unreachable the last successful response is served with an `X-Hub-Stale: true` header.
 - **Install from the UI.** OpenEverest admins get one-click install, upgrade and uninstall (on by default; operators can opt out) — see [One-click install, upgrade & uninstall](#one-click-install-upgrade--uninstall). Every catalog entry also shows a copy-pasteable `helm install …` / `helm upgrade …` command.
+- **Compatibility-aware.** Each release is checked against the OpenEverest running in the cluster, and the hub offers the newest release that works with it rather than the newest release — see [Compatibility](#compatibility).
 
 Built from the [`openeverest/generic-plugin-template`](https://github.com/openeverest/generic-plugin-template) and following the [Generic Plugins spec (003)](https://github.com/openeverest/specs/blob/main/specs/003-generic-plugins.md).
 
@@ -84,16 +85,32 @@ For local development, set `INSTALLER_ENABLED=false` in `dev/.env` (this repo's 
 
 - **Operator switch.** Only with `installer.enabled=true` (the default) does the chart create a ServiceAccount bound to `installer.clusterRole`. With it off, the pod has no Kubernetes rights to install anything and the endpoints refuse every request.
 - **Admins only.** Every request is checked against the caller's OpenEverest permissions (`GET /v1/permissions`, validated by core). Only users who may create `plugins` cluster-wide — the `admin` role by default — can install, upgrade or uninstall. When OpenEverest RBAC is disabled, every authenticated user counts as an admin, matching core.
-- **Catalog-only.** The UI sends just `{type, name}`. The chart reference, version (default channel), release name and namespace come from the hub catalog, so arbitrary charts cannot be deployed or removed.
+- **Catalog-only.** The UI sends `{type, name}` and, optionally, a version that must be a release of the entry's default channel in the hub catalog. The chart reference, release name and namespace come from the catalog too, so arbitrary charts cannot be deployed or removed.
 
 ### Behavior
 
-- Install runs `helm install` with the formula's `install.helm.releaseName` / `namespace`; Upgrade runs `helm upgrade` on that release, keeping user-supplied values while picking up new chart defaults.
+- Install runs `helm install` with the formula's `install.helm.releaseName` / `namespace`; Upgrade runs `helm upgrade` on that release, keeping user-supplied values while picking up new chart defaults. Both first [check](#compatibility) that the chart works with the OpenEverest in the cluster.
+- A release whose first install failed can be installed again (**Retry install**): the new attempt replaces it, as Helm otherwise refuses to install over it and cannot upgrade it either.
+- When a Helm hook Job or Pod fails, the error shows the last lines of its logs (or why its container never started), not just `BackoffLimitExceeded`.
 - Upgrade availability is computed from the Helm release's chart version, so it is accurate even when a chart's `appVersion` differs.
 - Uninstall runs `helm uninstall` on that release after a confirmation dialog. If **instances still use a provider** (matched on `spec.providerRef.name` across all namespaces), the dialog lists them and the admin must type `UNINSTALL`; the backend enforces the same phrase, so the warning can't be skipped via the API. Helm keeps CRDs, so database resources are not deleted — they just stop being managed until the provider is reinstalled.
 - Not handled: prerequisites (e.g. cert-manager), CRD updates on upgrade or removal on uninstall (Helm limitation), releases installed under a non-default name, and plugin-hub modifying itself — use Helm directly for those.
 
 > **Security note.** With the installer enabled (the default), plugin-hub effectively holds cluster-admin. Anyone who can change its image or its `hubIndexURL` can use those rights — treat the catalog URL as a root of trust.
+
+## Compatibility
+
+OpenEverest publishes the range of extension builds it accepts as annotations on its CRDs (`openeverest.io/min-contract-version` and `openeverest.io/contract-version`, with the release in the `openeverest.io/version` label). Every extension chart built with the provider SDK is stamped with the version of OpenEverest it was built against, in the `openeverest.io/contract-version` annotation of its `Chart.yaml`, and the hub index copies that stamp into each release it lists. A release works with the cluster when the range contains its stamp. Nobody writes version ranges by hand.
+
+The hub reads the range from the CRDs of the kinds the extension creates (Provider and BackupClass for providers, MonitoringClass for integrations, Plugin for plugins; the intersection when there are several) and, for each entry:
+
+- offers the **newest release that works** with the cluster, which may be older than the newest release;
+- shows releases that do not work with what they need (**Needs OpenEverest X**), and lets admins install them anyway after a confirmation;
+- allows releases that do not declare a stamp (**Compatibility not declared**), with a notice — every chart published before stamping existed, and every release of an index that does not list releases yet.
+
+Before running Helm, install and upgrade pull the chart and check the stamp in its `Chart.yaml`, which is authoritative. An incompatible release is refused with the version of OpenEverest it needs and the newest release that works. Installing it anyway sets `compatibility.acknowledge.coreVersion` to the running OpenEverest release, which lets the chart's own check accept it on that release only; after an OpenEverest upgrade the check applies again.
+
+An OpenEverest whose CRDs carry no range predates the check: stamped releases then need a newer OpenEverest, and unstamped ones are allowed. The chart grants the installer's ServiceAccount `get` on those CRDs by name (the `-crd-reader` ClusterRole), so the check does not depend on `installer.clusterRole`. With the installer disabled the pod relies on OpenEverest granting that read to authenticated identities; when it cannot read them, the hub offers each channel's newest release, as before.
 
 ## Local development
 
@@ -116,6 +133,7 @@ Then:
 ```bash
 curl -s http://localhost:8080/api/catalog | jq '.extensions | length'
 curl -s http://localhost:8080/api/summary | jq '.extensions[] | {name, type, installed}'
+curl -s http://localhost:8080/api/compatibility | jq '.extensions | map_values(.recommended)'
 ```
 
 Point your OpenEverest dev environment at `http://localhost:3001/main.js` for hot-reload during frontend work.

@@ -1,13 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { countEntries, matchesFilter } from './catalog';
+import {
+  compatibilityLabel,
+  countEntries,
+  helmInstallCommand,
+  helmUpgradeCommand,
+  incompatibleHead,
+  matchesFilter,
+  offeredVersion,
+  releaseVerdict,
+} from './catalog';
 import type { FilterState } from './types';
 import {
+  blockedCompat,
   corootIntegration,
   futureTypeEntry,
+  mongodbCompat,
+  mongodbEntry,
   pluginEntry,
   pmmIntegration,
   prometheusIntegration,
   providerEntry,
+  undeclaredCompat,
 } from './__fixtures__/catalog';
 
 const entries = [
@@ -62,5 +75,42 @@ describe('matchesFilter', () => {
 
   it('keeps unknown types visible on the All tab', () => {
     expect(matchesFilter(futureTypeEntry, filter({}))).toBe(true);
+  });
+});
+
+describe('compatibility helpers', () => {
+  const checked = { ...mongodbEntry, compat: mongodbCompat };
+
+  it('offers the newest compatible release, or the head when nothing was checked', () => {
+    expect(offeredVersion(checked)).toBe('0.7.0');
+    expect(offeredVersion({ ...mongodbEntry, compat: blockedCompat })).toBeNull();
+    expect(offeredVersion(mongodbEntry)).toBe('0.8.0');
+  });
+
+  it('finds the verdict of a release and an incompatible head', () => {
+    expect(releaseVerdict(checked, '0.7.0')?.status).toBe('True');
+    expect(releaseVerdict(checked, '9.9.9')).toBeUndefined();
+    expect(releaseVerdict(mongodbEntry, '0.8.0')).toBeUndefined();
+    expect(incompatibleHead(checked)?.needs).toBe('2.2.0');
+    expect(incompatibleHead({ ...mongodbEntry, compat: undeclaredCompat })).toBeUndefined();
+  });
+
+  it('labels each verdict', () => {
+    const [tooNew, works, undeclared] = mongodbCompat.releases;
+    expect(compatibilityLabel(tooNew)).toBe('Needs OpenEverest 2.2.0');
+    expect(compatibilityLabel(works)).toBe('Works with this OpenEverest');
+    expect(compatibilityLabel(undeclared)).toBe('Compatibility not declared');
+    expect(compatibilityLabel({ ...tooNew, needs: undefined, reason: 'ExtensionTooOld' })).toBe(
+      'Built for an older OpenEverest'
+    );
+    expect(compatibilityLabel({ ...undeclared, reason: 'CoreVersionSkew' })).toBe(
+      'Compatibility cannot be checked'
+    );
+  });
+
+  it('builds Helm commands for a given release', () => {
+    expect(helmInstallCommand(checked, '0.7.0')).toContain('--version 0.7.0');
+    expect(helmInstallCommand(checked)).toContain('--version 0.8.0');
+    expect(helmUpgradeCommand(checked, '0.7.0')).toContain('--version 0.7.0');
   });
 });

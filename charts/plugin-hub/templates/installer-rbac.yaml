@@ -21,4 +21,39 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "plugin-hub.fullname" . }}-installer
     namespace: {{ .Release.Namespace }}
+---
+# Before installing or upgrading an extension, the installer reads the
+# compatibility window OpenEverest publishes on its CRDs. installer.clusterRole
+# can be narrowed below cluster-admin, so grant that read explicitly. Keep the
+# names in sync with coreCRDsByType in backend/compat.go (a test checks it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "plugin-hub.fullname" . }}-crd-reader
+  labels:
+    {{- include "plugin-hub.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+    resourceNames:
+      - providers.core.openeverest.io
+      - backupclasses.backup.openeverest.io
+      - monitoringclasses.monitoring.openeverest.io
+      - plugins.extensions.openeverest.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "plugin-hub.fullname" . }}-crd-reader
+  labels:
+    {{- include "plugin-hub.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "plugin-hub.fullname" . }}-crd-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "plugin-hub.fullname" . }}-installer
+    namespace: {{ .Release.Namespace }}
 {{- end }}
