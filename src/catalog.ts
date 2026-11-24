@@ -64,11 +64,32 @@ export function releaseVerdict(
   return entry.compat?.releases.find((r) => r.version === version);
 }
 
+// isAcknowledged reports whether a release that does not work with the
+// cluster is allowed anyway because OpenEverest acknowledges it.
+export function isAcknowledged(verdict: ReleaseVerdict): boolean {
+  return verdict.reason === 'CoreTooOldAcknowledged' || verdict.reason === 'ExtensionTooOldAcknowledged';
+}
+
 // incompatibleHead returns the verdict of the channel head when it does not
 // work with the cluster, so it can only be installed by acknowledging that.
 export function incompatibleHead(entry: CatalogEntry): ReleaseVerdict | undefined {
   const head = releaseVerdict(entry, entry.compat?.head);
-  return head?.status === 'False' ? head : undefined;
+  return head?.status === 'False' && !isAcknowledged(head) ? head : undefined;
+}
+
+// noReleaseSupports says that no release of the entry works with the
+// OpenEverest in the cluster; usually the extension has not caught up with an
+// OpenEverest upgrade yet. `newer` narrows it to releases newer than the
+// installed one.
+export function noReleaseSupports(entry: CatalogEntry, newer = false): string {
+  const core = entry.compat?.coreVersion ? `OpenEverest ${entry.compat.coreVersion}` : 'this OpenEverest';
+  return `No ${newer ? 'newer ' : ''}release of ${entry.displayName || entry.name} supports ${core} yet`;
+}
+
+// Short form of noReleaseSupports, for the catalog row.
+export function noReleaseLabel(entry: CatalogEntry): string {
+  const core = entry.compat?.coreVersion ? `OpenEverest ${entry.compat.coreVersion}` : 'this OpenEverest';
+  return `No release supports ${core} yet`;
 }
 
 // Short label for a release that does not work with the cluster.
@@ -81,6 +102,7 @@ export function incompatibleLabel(verdict: ReleaseVerdict): string {
 // Short label for any verdict.
 export function compatibilityLabel(verdict: ReleaseVerdict): string {
   if (verdict.status === 'True') return 'Works with this OpenEverest';
+  if (isAcknowledged(verdict)) return 'Incompatibility acknowledged';
   if (verdict.status === 'False') return incompatibleLabel(verdict);
   if (verdict.reason === 'Unversioned') return 'Compatibility not declared';
   return 'Compatibility cannot be checked';

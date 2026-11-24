@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { h, initRuntime } from '../runtime';
 import { Drawer } from './Drawer';
 import {
+  acknowledgedCompat,
   blockedCompat,
   corootIntegration,
   futureTypeEntry,
@@ -148,10 +149,32 @@ describe('Drawer compatibility', () => {
     expect(screen.getByTestId('plugin-hub-compatibility').textContent).toBe(
       'Compatibility: Needs OpenEverest 2.2.0'
     );
-    expect(screen.getByTestId('plugin-hub-incompatible').textContent).toContain(
-      'No release in the catalog works with the OpenEverest in this cluster.'
+    expect(screen.getByTestId('plugin-hub-incompatible').textContent).toBe(
+      'No release of MongoDB supports OpenEverest 2.1.0 yet. MongoDB 0.8.0 needs OpenEverest 2.2.0 or later.'
     );
     expect(screen.getByTestId('plugin-hub-install-anyway').textContent).toBe('Install 0.8.0 anyway…');
+  });
+
+  it('installs a release OpenEverest acknowledges, with a notice', async () => {
+    const fetch = stubFetch(() => jsonResponse(200, { ...deployed, chartVersion: '0.8.0' }));
+    renderDrawer({ ...mongodbEntry, compat: acknowledgedCompat }, ADMIN);
+    expect(screen.getByTestId('plugin-hub-compatibility').textContent).toBe(
+      'Compatibility: Incompatibility acknowledged'
+    );
+    expect(screen.getByTestId('plugin-hub-compat-notice').textContent).toBe(
+      'MongoDB 0.8.0 needs OpenEverest 2.2.0 or later; allowed anyway because the incompatibility was acknowledged.'
+    );
+    expect(screen.queryByTestId('plugin-hub-incompatible')).toBeNull();
+    expect(screen.queryByTestId('plugin-hub-install-anyway')).toBeNull();
+    fireEvent.click(screen.getByTestId('plugin-hub-install-now'));
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(requestBody(fetch)).toEqual({ type: 'provider', name: 'percona-server-mongodb', version: '0.8.0' });
+  });
+
+  it('says how long installing anyway lasts', () => {
+    renderDrawer(checked, ADMIN);
+    fireEvent.click(screen.getByTestId('plugin-hub-install-anyway'));
+    expect(screen.getByText(/such as patch releases/)).toBeTruthy();
   });
 
   it('explains incompatibility to users who cannot install, without the override', () => {
@@ -187,8 +210,8 @@ describe('Drawer compatibility', () => {
     const button = screen.getByTestId('plugin-hub-upgrade-now') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByTestId('plugin-hub-upgrade-anyway').textContent).toBe('Upgrade to 0.8.0 anyway…');
-    expect(screen.getByTestId('plugin-hub-incompatible').textContent).toContain(
-      'No newer release works with the OpenEverest in this cluster.'
+    expect(screen.getByTestId('plugin-hub-incompatible').textContent).toBe(
+      'No newer release of MongoDB supports OpenEverest 2.1.0 yet. MongoDB 0.8.0 needs OpenEverest 2.2.0 or later.'
     );
   });
 
@@ -199,6 +222,19 @@ describe('Drawer compatibility', () => {
     );
     expect(screen.getByText('Install failed')).toBeTruthy();
     expect(screen.getByTestId('plugin-hub-install-now').textContent).toBe('Retry install');
+  });
+
+  it('marks third-party extensions and names their publisher', () => {
+    renderDrawer({ ...mongodbEntry, publisher: 'example-org', thirdParty: true });
+    expect(screen.getByTestId('plugin-hub-third-party').getAttribute('title')).toBe(
+      'Published by example-org, outside the OpenEverest organization'
+    );
+    expect(screen.getByText('example-org')).toBeTruthy();
+  });
+
+  it('does not mark extensions OpenEverest publishes', () => {
+    renderDrawer({ ...mongodbEntry, publisher: 'openeverest', thirdParty: false });
+    expect(screen.queryByTestId('plugin-hub-third-party')).toBeNull();
   });
 
   it('offers the channel head when the cluster could not be checked', () => {

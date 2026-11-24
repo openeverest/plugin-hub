@@ -349,6 +349,17 @@ export function Drawer(props: {
                 color: 'secondary',
                 variant: 'outlined',
               })
+            : null,
+          entry.thirdParty
+            ? h(Chip, {
+                label: 'Third-party',
+                title: entry.publisher
+                  ? `Published by ${entry.publisher}, outside the OpenEverest organization`
+                  : 'Published outside the OpenEverest organization',
+                size: 'small',
+                variant: 'outlined',
+                'data-testid': 'plugin-hub-third-party',
+              })
             : null
         )
       ),
@@ -487,6 +498,9 @@ export function Drawer(props: {
           : null,
         entry.license
           ? h(Typography, { variant: 'body2' }, h('b', null, 'License: '), entry.license)
+          : null,
+        entry.publisher
+          ? h(Typography, { variant: 'body2' }, h('b', null, 'Publisher: '), entry.publisher)
           : null,
         entry.verified
           ? h(Typography, { variant: 'body2' }, h('b', null, 'Verified: '), 'yes')

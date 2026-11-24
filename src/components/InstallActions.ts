@@ -6,7 +6,7 @@
 // still be installed, behind a confirmation.
 import { React, h } from '../runtime';
 import { InstallerError, runInstallerAction } from '../data';
-import { incompatibleLabel } from '../catalog';
+import { incompatibleLabel, isAcknowledged, noReleaseSupports } from '../catalog';
 import { CodeBlock } from './CodeBlock';
 import {
   Alert,
@@ -110,12 +110,10 @@ export function InstallActions(props: {
             sx: { mb: 1.5 },
             'data-testid': 'plugin-hub-incompatible',
           },
-          `${title} ${incompatible.version} ${incompatible.message}.`,
           targetVersion !== null
-            ? ` ${targetVersion} is the newest release that works with it.`
-            : mode === 'upgrade'
-            ? ' No newer release works with the OpenEverest in this cluster.'
-            : ' No release in the catalog works with the OpenEverest in this cluster.'
+            ? `${title} ${incompatible.version} ${incompatible.message}. ${targetVersion} is the newest release that works with it.`
+            : `${noReleaseSupports(entry, mode === 'upgrade' && !!entry.compat?.recommended)}. ` +
+                `${title} ${incompatible.version} ${incompatible.message}.`
         )
       : null,
     h(
@@ -161,7 +159,7 @@ export function InstallActions(props: {
         labels.helm
       )
     ),
-    targetVersion && targetVerdict?.status === 'Unknown'
+    targetVersion && targetVerdict && (targetVerdict.status === 'Unknown' || isAcknowledged(targetVerdict))
       ? h(
           Typography,
           {
@@ -199,7 +197,7 @@ export function InstallActions(props: {
             h(
               Typography,
               { variant: 'body2' },
-              'OpenEverest may reject or misread what it installs. This only overrides the check for the OpenEverest release running now: it applies again once OpenEverest is upgraded.'
+              'OpenEverest may reject or misread what it installs. The override names the OpenEverest release running now. It survives OpenEverest releases that keep the version extensions are built against, such as patch releases, and the check applies again once an upgrade changes it.'
             )
           ),
           h(

@@ -117,7 +117,10 @@ describe('Hub page compatibility', () => {
       },
     });
     const chip = await screen.findByTestId('plugin-hub-row-incompatible');
-    expect(chip.textContent).toBe('Needs OpenEverest 2.2.0');
+    expect(chip.textContent).toBe('No release supports OpenEverest 2.1.0 yet');
+    expect(chip.getAttribute('title')).toBe(
+      'No release of PMM supports OpenEverest 2.1.0 yet. PMM 0.1.0 needs OpenEverest 2.2.0 or later.'
+    );
     expect(screen.getAllByTestId('plugin-hub-row-incompatible')).toHaveLength(1);
   });
 

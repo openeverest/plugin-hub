@@ -13,9 +13,21 @@
 // releases (every chart published before stamping existed) are allowed with a
 // notice. Only a failed check blocks, and an admin can still install anyway,
 // which is recorded in the Helm values so the chart's own render-time check
-// accepts it on this OpenEverest release. When the CRDs cannot be read, the
-// catalog offers channel heads as it did before checks existed, while install
-// and upgrade fail rather than run unchecked.
+// and core's admission accept it. When the CRDs cannot be read, the catalog
+// offers channel heads as it did before checks existed, while install and
+// upgrade fail rather than run unchecked.
+//
+// An acknowledgement names the OpenEverest release it was given on, and holds
+// while that release is within what the core CRDs publish: no older than their
+// contract version, no newer than their release (contract.AcknowledgementHolds).
+// It thus survives the patch releases that keep the contract and expires with
+// the first one that changes it. The core chart can also acknowledge
+// extensions itself, by root object name, in a list on its CRDs; every reader
+// honours that list, so the hub does too: a release it covers is allowed with
+// a notice rather than refused. The core chart's policy for incompatible
+// plugins is not an acknowledgement: under "continue" core admits a Plugin
+// built for an older OpenEverest but does not load it, so the hub still does
+// not offer one.
 package main
 
 import (
@@ -25,6 +37,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -95,6 +108,9 @@ type coreCRD struct {
 	window   contract.Window
 	declared bool
 	version  string
+	// acknowledged is the core chart's list of acknowledged extensions: the
+	// core release each is acknowledged on, by root object name.
+	acknowledged map[string]string
 }
 
 // coreCRDs maps the name of every core CRD found in the cluster to what it
@@ -111,8 +127,21 @@ func readCoreCRDs(ctx context.Context, get crdGetter, names []string) (coreCRDs,
 		if err != nil {
 			return nil, fmt.Errorf("read CustomResourceDefinition %s: %w", name, err)
 		}
-		w, declared := contract.WindowFromAnnotations(crd.GetAnnotations())
-		out[name] = coreCRD{window: w, declared: declared, version: crd.GetLabels()[contract.CoreVersionKey]}
+		annotations := crd.GetAnnotations()
+		w, declared := contract.WindowFromAnnotations(annotations)
+		// A list that does not parse acknowledges nothing, as it does for
+		// core's admission: guessing what the admin meant could install an
+		// extension nobody acknowledged.
+		acknowledged, err := contract.ParseAcknowledgedExtensions(annotations[contract.AcknowledgedExtensionsAnnotation])
+		if err != nil {
+			log.Printf("compatibility: ignoring %s on %s: %v", contract.AcknowledgedExtensionsAnnotation, name, err)
+		}
+		out[name] = coreCRD{
+			window:       w,
+			declared:     declared,
+			version:      crd.GetLabels()[contract.CoreVersionKey],
+			acknowledged: acknowledged,
+		}
 	}
 	return out, nil
 }
@@ -129,6 +158,10 @@ type clusterWindow struct {
 	partial bool
 	// coreVersion is the OpenEverest release, from the CRD label.
 	coreVersion string
+	// crds are the CRDs the window was read from. Acknowledgements must hold
+	// on each of them, since core admits every object against the CRD of its
+	// own kind only.
+	crds []coreCRD
 }
 
 // windowFor intersects the windows of the CRDs an extension type creates
@@ -148,6 +181,7 @@ func (c coreCRDs) windowFor(extType string) (clusterWindow, bool) {
 		if out.coreVersion == "" {
 			out.coreVersion = crd.version
 		}
+		out.crds = append(out.crds, crd)
 		if !crd.declared {
 			undeclared++
 			continue
@@ -179,6 +213,65 @@ func (w clusterWindow) check(stamp string) contract.Result {
 	default:
 		return w.window.Check(stamp)
 	}
+}
+
+// acknowledgementHolds reports whether an acknowledgement naming the core
+// release ack holds on every CRD of the window.
+func (w clusterWindow) acknowledgementHolds(ack string) bool {
+	if len(w.crds) == 0 {
+		return false
+	}
+	for _, crd := range w.crds {
+		if !contract.AcknowledgementHolds(ack, crd.window.Current, crd.version) {
+			return false
+		}
+	}
+	return true
+}
+
+// acknowledgedByCore reports whether the core chart acknowledges the
+// extension whose root objects are named names: the list on every CRD of the
+// window names each of them, on a release for which the acknowledgement
+// holds.
+func (w clusterWindow) acknowledgedByCore(names []string) bool {
+	if len(names) == 0 || len(w.crds) == 0 {
+		return false
+	}
+	for _, crd := range w.crds {
+		for _, name := range names {
+			ack, ok := crd.acknowledged[name]
+			if !ok || !contract.AcknowledgementHolds(ack, crd.window.Current, crd.version) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// rootObjectNames returns the names of the objects the core chart's list of
+// acknowledged extensions refers to an extension by: its Provider, its
+// MonitoringClasses, or its Plugin. The index names them where they differ
+// from the entry name.
+func rootObjectNames(ext extensionSummary) []string {
+	switch ext.Type {
+	case "provider":
+		if name, ok := ext.Provider["providerName"].(string); ok && name != "" {
+			return []string{name}
+		}
+	case "integration":
+		var spec struct {
+			Monitoring struct {
+				Classes []string `json:"classes"`
+			} `json:"monitoring"`
+		}
+		if err := remarshal(ext.Integration, &spec); err == nil {
+			names := slices.DeleteFunc(slices.Clone(spec.Monitoring.Classes), func(n string) bool { return n == "" })
+			if len(names) > 0 {
+				return names
+			}
+		}
+	}
+	return []string{ext.Name}
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +325,9 @@ type releaseVerdict struct {
 	Version         string `json:"version"`
 	ContractVersion string `json:"contractVersion,omitempty"`
 	// Status is True (works with this OpenEverest), False (does not) or
-	// Unknown (cannot be checked; allowed with a notice).
+	// Unknown (cannot be checked; allowed with a notice). A release that does
+	// not work but is acknowledged stays False, with an Acknowledged reason,
+	// and is allowed with a notice too.
 	Status  metav1.ConditionStatus `json:"status"`
 	Reason  string                 `json:"reason"`
 	Message string                 `json:"message"`
@@ -240,8 +335,13 @@ type releaseVerdict struct {
 	Needs string `json:"needs,omitempty"`
 }
 
-func verdictFor(version, stamp string, w clusterWindow) releaseVerdict {
+// verdictFor checks one release. acknowledged is whether the core chart
+// acknowledges the extension.
+func verdictFor(version, stamp string, w clusterWindow, acknowledged bool) releaseVerdict {
 	r := w.check(stamp)
+	if acknowledged && r.Status == metav1.ConditionFalse {
+		r = contract.Acknowledge(r)
+	}
 	v := releaseVerdict{
 		Version:         version,
 		ContractVersion: stamp,
@@ -249,24 +349,40 @@ func verdictFor(version, stamp string, w clusterWindow) releaseVerdict {
 		Reason:          r.Reason,
 		Message:         contract.Message(r, stamp, w.window),
 	}
-	if r.Reason == contract.ReasonCoreTooOld && !contract.IsDevelopment(stamp) {
+	if (r.Reason == contract.ReasonCoreTooOld || r.Reason == contract.ReasonCoreTooOldAcknowledged) &&
+		!contract.IsDevelopment(stamp) {
 		v.Needs = stamp
 	}
 	return v
 }
 
-func verdicts(releases []catalogRelease, w clusterWindow) []releaseVerdict {
+func verdicts(releases []catalogRelease, w clusterWindow, acknowledged bool) []releaseVerdict {
 	out := make([]releaseVerdict, 0, len(releases))
 	for _, r := range releases {
-		out = append(out, verdictFor(r.Version, r.ContractVersion, w))
+		out = append(out, verdictFor(r.Version, r.ContractVersion, w, acknowledged))
 	}
 	return out
 }
 
 // installable reports whether a release may be installed without an explicit
-// acknowledgement: it works with the cluster, or it cannot be checked.
+// acknowledgement: it works with the cluster, it cannot be checked, or the
+// core chart acknowledges it.
 func installable(v releaseVerdict) bool {
-	return v.Status != metav1.ConditionFalse
+	return v.Status != metav1.ConditionFalse || isAcknowledged(v.Reason)
+}
+
+func isAcknowledged(reason string) bool {
+	return reason == contract.ReasonCoreTooOldAcknowledged || reason == contract.ReasonExtensionTooOldAcknowledged
+}
+
+// noReleaseSupports says that no release of an extension works with the
+// OpenEverest in the cluster. "Yet": usually the extension has not caught up
+// with an OpenEverest upgrade.
+func noReleaseSupports(name, coreVersion string) string {
+	if coreVersion == "" {
+		return fmt.Sprintf("No release of %s supports this OpenEverest yet.", name)
+	}
+	return fmt.Sprintf("No release of %s supports OpenEverest %s yet.", name, coreVersion)
 }
 
 // newestInstallable returns the newest installable release other than skip,
@@ -319,7 +435,7 @@ func compatibilityFor(index extensionIndex, crds coreCRDs) compatibilityResponse
 		if err != nil {
 			continue
 		}
-		vs := verdicts(channel.releases(), w)
+		vs := verdicts(channel.releases(), w, w.acknowledgedByCore(rootObjectNames(ext)))
 		out.Extensions[ext.Type+":"+ext.Name] = entryCompatibility{
 			Channel:     name,
 			Head:        channel.head(),
@@ -386,8 +502,10 @@ type compatCheck struct {
 	window clusterWindow
 	// checked is false when the cluster has none of the CRDs, so the
 	// operation proceeds unchecked, as the chart's own check does.
-	checked  bool
-	verdicts []releaseVerdict
+	checked bool
+	// acknowledged is whether the core chart acknowledges the extension.
+	acknowledged bool
+	verdicts     []releaseVerdict
 }
 
 // pickVersion resolves the release to install: the requested one, which must
@@ -429,14 +547,17 @@ func admitChart(t installTarget, version string, annotations map[string]string, 
 		log.Printf("installer: %s %s %s", t.Name, version, contract.Message(r, stamp, c.window.window))
 		return nil, nil
 	}
-	if acknowledge {
-		log.Printf("installer: %s %s %s", t.Name, version, contract.Message(contract.Acknowledge(r), stamp, c.window.window))
-		if c.window.coreVersion == "" {
-			return nil, nil
-		}
-		return acknowledgeValues(c.window.coreVersion), nil
+	if c.acknowledged {
+		// The chart's own check and core's admission read the same list on
+		// the CRDs, so there is nothing to record.
+		log.Printf("installer: %s %s %s in %s", t.Name, version,
+			contract.Message(contract.Acknowledge(r), stamp, c.window.window), contract.AcknowledgedExtensionsAnnotation)
+		return nil, nil
 	}
-	v := verdictFor(version, stamp, c.window)
+	if acknowledge {
+		return acknowledgeIncompatible(t, version, r, stamp, c.window)
+	}
+	v := verdictFor(version, stamp, c.window, false)
 	msg := fmt.Sprintf("%s %s %s", t.Name, version, v.Message)
 	if c.window.coreVersion != "" {
 		msg += fmt.Sprintf("; this cluster runs OpenEverest %s", c.window.coreVersion)
@@ -445,9 +566,36 @@ func admitChart(t installTarget, version string, annotations map[string]string, 
 	if recommended != "" {
 		msg += fmt.Sprintf(". The newest release that works with it is %s.", recommended)
 	} else {
-		msg += ". No release in the hub catalog works with it."
+		msg += ". " + noReleaseSupports(t.Name, c.window.coreVersion)
 	}
 	return nil, errIncompatible{msg: msg, reason: r.Reason, needs: v.Needs, recommended: recommended}
+}
+
+// acknowledgeIncompatible returns the Helm values that let a release which
+// does not work with the cluster install anyway: an acknowledgement naming the
+// OpenEverest release in the cluster, which holds until a core release changes
+// the contract.
+func acknowledgeIncompatible(t installTarget, version string, r contract.Result, stamp string,
+	w clusterWindow) (map[string]any, error) {
+	msg := contract.Message(contract.Acknowledge(r), stamp, w.window)
+	if !w.declared {
+		// An OpenEverest without a window checks nothing, so there is
+		// nothing to record.
+		log.Printf("installer: %s %s %s", t.Name, version, msg)
+		return nil, nil
+	}
+	// The release in the CRD label always holds, unless the label is missing
+	// or the CRDs disagree mid-upgrade. Installing then would only fail in the
+	// chart's own check or in core's admission, so refuse with the reason.
+	if !w.acknowledgementHolds(w.coreVersion) {
+		return nil, errConflict{fmt.Sprintf(
+			"%s %s %s, and cannot be installed anyway: an acknowledgement names the OpenEverest release, and the "+
+				"CustomResourceDefinitions of this OpenEverest do not agree on one (label %s); retry once its install "+
+				"or upgrade completes",
+			t.Name, version, contract.Message(r, stamp, w.window), contract.CoreVersionKey)}
+	}
+	log.Printf("installer: %s %s %s on OpenEverest %s", t.Name, version, msg, w.coreVersion)
+	return acknowledgeValues(w.coreVersion), nil
 }
 
 // acknowledgeValues sets the chart value that lets it install on this

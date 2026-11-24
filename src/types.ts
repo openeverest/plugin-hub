@@ -38,6 +38,10 @@ export interface CatalogEntry {
   icon?: string;
   homepage?: string;
   sourceRepo?: string;
+  // The GitHub account the extension is published from, and whether that is
+  // outside the OpenEverest organization. Older indexes carry neither.
+  publisher?: string;
+  thirdParty?: boolean;
   license?: string;
   verified?: boolean;
   categories?: string[];
@@ -98,8 +102,10 @@ export interface CatalogRelease {
 }
 
 // Result of checking one release against the OpenEverest in the cluster.
-// True: works with it. False: does not; installing needs an acknowledgement.
-// Unknown: cannot be checked (e.g. the release does not declare it); allowed.
+// True: works with it. False: does not; installing needs an acknowledgement,
+// unless OpenEverest already acknowledges it (an *Acknowledged reason), which
+// allows it with a notice. Unknown: cannot be checked (e.g. the release does
+// not declare it); allowed with a notice.
 export interface ReleaseVerdict {
   version: string;
   contractVersion?: string;
@@ -114,8 +120,8 @@ export interface ReleaseVerdict {
 export interface EntryCompatibility {
   channel: string;
   head: string;
-  // The newest release that can be installed without an acknowledgement;
-  // absent when none can.
+  // The newest release that can be installed without an acknowledgement from
+  // the user; absent when none can.
   recommended?: string;
   releases: ReleaseVerdict[];
   // The OpenEverest release in the cluster, copied from the response.

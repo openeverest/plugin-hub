@@ -4,8 +4,9 @@ import {
   currentVersion,
   defaultChannelVersion,
   incompatibleHead,
-  incompatibleLabel,
   isVersionOutdated,
+  noReleaseLabel,
+  noReleaseSupports,
   offeredVersion,
 } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
@@ -24,7 +25,7 @@ export function Row(props: {
 }): any {
   const { entry, onSelect } = props;
   // The newest release that works with this OpenEverest; when none does, the
-  // row shows the newest release and what it needs.
+  // row shows the newest release, says so, and what that release needs.
   const offered = offeredVersion(entry);
   const version = offered ?? defaultChannelVersion(entry);
   const blockedBy = offered === null && entry.access !== 'gated' ? incompatibleHead(entry) : undefined;
@@ -73,7 +74,8 @@ export function Row(props: {
       version ?? '—',
       blockedBy
         ? h(Chip, {
-            label: incompatibleLabel(blockedBy),
+            label: noReleaseLabel(entry),
+            title: `${noReleaseSupports(entry)}. ${entry.displayName || entry.name} ${blockedBy.version} ${blockedBy.message}.`,
             size: 'small',
             variant: 'outlined',
             sx: { ml: 1 },

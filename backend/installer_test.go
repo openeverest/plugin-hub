@@ -102,6 +102,7 @@ func TestResolveTarget(t *testing.T) {
 		ChartRef: "oci://ghcr.io/openeverest/charts/plugin-metrics", Version: "0.2.2",
 		Releases: []catalogRelease{{Version: "0.2.2"}},
 		Release:  "metrics", Namespace: "everest-system",
+		RootObjectNames: []string{"plugin-metrics"},
 	}
 	assert.Equal(t, want, got)
 

@@ -150,6 +150,22 @@ export const blockedCompat: EntryCompatibility = {
   releases: [mongodbCompat.releases[0]],
 };
 
+// OpenEverest acknowledges the extension, so its head is offered although it
+// needs a newer OpenEverest, with a notice.
+export const acknowledgedCompat: EntryCompatibility = {
+  ...mongodbCompat,
+  recommended: '0.8.0',
+  releases: [
+    {
+      ...mongodbCompat.releases[0],
+      reason: 'CoreTooOldAcknowledged',
+      message:
+        'needs OpenEverest 2.2.0 or later; allowed anyway because the incompatibility was acknowledged',
+    },
+    ...mongodbCompat.releases.slice(1),
+  ],
+};
+
 // Only unstamped releases: allowed, with a notice.
 export const undeclaredCompat: EntryCompatibility = {
   channel: 'stable',

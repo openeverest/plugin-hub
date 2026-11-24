@@ -722,6 +722,8 @@ type extensionSummary struct {
 	Icon             string         `json:"icon"`
 	Homepage         string         `json:"homepage"`
 	SourceRepo       string         `json:"sourceRepo"`
+	Publisher        string         `json:"publisher,omitempty"`
+	ThirdParty       bool           `json:"thirdParty,omitempty"`
 	License          string         `json:"license"`
 	Verified         bool           `json:"verified"`
 	Health           string         `json:"health"`

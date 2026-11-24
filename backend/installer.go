@@ -221,6 +221,9 @@ type installTarget struct {
 	// ProviderName is the Provider CR name instances reference via
 	// spec.providerRef.name; it can differ from the catalog name.
 	ProviderName string
+	// RootObjectNames are the names the core chart's list of acknowledged
+	// extensions refers to this extension by.
+	RootObjectNames []string
 }
 
 func resolveTarget(index extensionIndex, extType, name string) (installTarget, error) {
@@ -251,13 +254,14 @@ func targetFromEntry(ext extensionSummary) (installTarget, error) {
 		return installTarget{}, fmt.Errorf("invalid install spec: %w", err)
 	}
 	target := installTarget{
-		Type:      ext.Type,
-		Name:      ext.Name,
-		ChartRef:  channel.Ref,
-		Version:   channel.head(),
-		Releases:  channel.releases(),
-		Release:   install.Helm.ReleaseName,
-		Namespace: install.Helm.Namespace,
+		Type:            ext.Type,
+		Name:            ext.Name,
+		ChartRef:        channel.Ref,
+		Version:         channel.head(),
+		Releases:        channel.releases(),
+		Release:         install.Helm.ReleaseName,
+		Namespace:       install.Helm.Namespace,
+		RootObjectNames: rootObjectNames(ext),
 	}
 	if target.Release == "" {
 		target.Release = ext.Name
@@ -331,7 +335,8 @@ func (i *installer) compatCheck(ctx context.Context, t installTarget) (compatChe
 			strings.Join(coreCRDsFor(t.Type), ", "), t.Name)
 		return compatCheck{}, nil
 	}
-	return compatCheck{window: w, checked: true, verdicts: verdicts(t.Releases, w)}, nil
+	acknowledged := w.acknowledgedByCore(t.RootObjectNames)
+	return compatCheck{window: w, checked: true, acknowledged: acknowledged, verdicts: verdicts(t.Releases, w, acknowledged)}, nil
 }
 
 // prepareChart picks the release to install, pulls it and checks its stamp.
