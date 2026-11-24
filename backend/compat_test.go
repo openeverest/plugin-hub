@@ -345,6 +345,29 @@ func TestClusterWindowCheck(t *testing.T) {
 	}
 }
 
+// A release built against an unreleased OpenEverest must not name that build
+// as the version to install: nobody can install it.
+func TestVerdictForNamesOnlyReleasedCores(t *testing.T) {
+	window := clusterWindow{window: contract.Window{Min: "2.0.0-alpha.1", Current: "2.0.0-alpha.1"}, declared: true}
+	tests := []struct {
+		name  string
+		stamp string
+		needs string
+	}{
+		{"built for a newer release", "2.0.0-alpha.2", "2.0.0-alpha.2"},
+		{"built for an old dev release", "2.0.0-dev.4", "2.0.0-dev.4"},
+		{"built for main after a pre-release", "2.0.0-alpha.1.next", ""},
+		{"built for main after a release", "2.1.0-alpha.0", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := verdictFor("1.0.0", tt.stamp, window, false)
+			assert.Equal(t, contract.ReasonCoreTooOld, got.Reason)
+			assert.Equal(t, tt.needs, got.Needs)
+		})
+	}
+}
+
 // A declared window must decide exactly as core's own check does.
 func TestClusterWindowCheckMatchesContractVectors(t *testing.T) {
 	var vectors struct {
