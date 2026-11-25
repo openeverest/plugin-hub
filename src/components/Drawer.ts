@@ -1,11 +1,15 @@
 import { React, h } from '../runtime';
 import { sx, maturityColor, typeColor } from '../styles';
 import {
+  compatibilityLabel,
   currentVersion,
   defaultChannelVersion,
   helmInstallCommand,
   helmUpgradeCommand,
+  incompatibleHead,
   isVersionOutdated,
+  offeredVersion,
+  releaseVerdict,
 } from '../catalog';
 import { IconImg, resolveIconSrc } from '../icons';
 import { CodeBlock } from './CodeBlock';
@@ -275,11 +279,33 @@ export function Drawer(props: {
   const { entry, installer, notice, onInstallerDone, onClose } = props;
   const [uninstallOpen, setUninstallOpen] = React.useState(false);
   const isGated = entry.access === 'gated';
-  const version = isGated ? null : defaultChannelVersion(entry);
+  const head = isGated ? null : defaultChannelVersion(entry);
+  // The newest release that works with this OpenEverest; null when none does.
+  const version = isGated ? null : offeredVersion(entry);
+  const verdict = releaseVerdict(entry, version);
   const installedVersion = currentVersion(entry);
-  const isOutdated = !!entry.installed && isVersionOutdated(installedVersion, version);
+  const failedInstall = !!entry.release?.failedInstall;
+  const headIncompatible = isGated ? undefined : incompatibleHead(entry);
+  // A release newer than the offered (and the installed) one that only
+  // installs if the user acknowledges it does not work with this OpenEverest.
+  const incompatible =
+    headIncompatible &&
+    (!entry.installed || failedInstall || isVersionOutdated(installedVersion, headIncompatible.version))
+      ? headIncompatible
+      : undefined;
+  const isOutdated = !!entry.installed && !failedInstall && isVersionOutdated(installedVersion, version);
   // Installed and up to date → nothing to do; gated → handled by its own section.
-  const actionMode = isGated ? null : isOutdated ? 'upgrade' : entry.installed ? null : 'install';
+  const actionMode = isGated
+    ? null
+    : failedInstall || !entry.installed
+    ? 'install'
+    : isOutdated || incompatible
+    ? 'upgrade'
+    : null;
+  // What the action installs; null when nothing installable is newer than the
+  // installed release, and only the incompatible head is left.
+  const target = actionMode === 'upgrade' && !isOutdated ? null : version;
+  const shownVerdict = verdict ?? (version === null ? headIncompatible : undefined);
   const releaseStatus = entry.release?.status;
   const isSelf = installer?.self === `${entry.type}:${entry.name}`;
   const canManage = !!installer?.canInstall && !isGated && !isSelf;
@@ -323,6 +349,17 @@ export function Drawer(props: {
                 color: 'secondary',
                 variant: 'outlined',
               })
+            : null,
+          entry.thirdParty
+            ? h(Chip, {
+                label: 'Third-party',
+                title: entry.publisher
+                  ? `Published by ${entry.publisher}, outside the OpenEverest organization`
+                  : 'Published outside the OpenEverest organization',
+                size: 'small',
+                variant: 'outlined',
+                'data-testid': 'plugin-hub-third-party',
+              })
             : null
         )
       ),
@@ -338,13 +375,15 @@ export function Drawer(props: {
           Box,
           { sx: { mb: 2, display: 'flex', alignItems: 'center', gap: 1 } },
           h(Chip, {
-            label: installedVersion
+            label: failedInstall
+              ? 'Install failed'
+              : installedVersion
               ? `Installed · ${installedVersion}`
               : 'Installed',
             size: 'small',
-            color: 'success',
+            color: failedInstall ? 'error' : 'success',
           }),
-          releaseStatus && releaseStatus !== 'deployed'
+          releaseStatus && releaseStatus !== 'deployed' && !failedInstall
             ? h(Chip, {
                 label: `Helm: ${releaseStatus}`,
                 size: 'small',
@@ -398,12 +437,17 @@ export function Drawer(props: {
 
     actionMode
       ? h(InstallActions, {
-          key: actionMode,
+          key: `${entry.type}:${entry.name}:${actionMode}`,
           entry,
           mode: actionMode,
-          targetVersion: version,
+          targetVersion: target,
+          targetVerdict: verdict,
+          incompatible,
+          retry: failedInstall,
           helmCommand:
-            actionMode === 'upgrade' ? helmUpgradeCommand(entry) : helmInstallCommand(entry),
+            actionMode === 'upgrade'
+              ? helmUpgradeCommand(entry, target ?? head)
+              : helmInstallCommand(entry, target ?? head),
           canInstallNow: canManage,
           onDone: (release: ReleaseInfo) => onInstallerDone(entry, actionMode, release),
         })
@@ -424,8 +468,19 @@ export function Drawer(props: {
       h(
         Box,
         { sx: { fontSize: '0.875rem', lineHeight: 1.7 } },
-        version
-          ? h(Typography, { variant: 'body2' }, h('b', null, 'Version: '), version)
+        version || head
+          ? h(Typography, { variant: 'body2' }, h('b', null, 'Version: '), version || head)
+          : null,
+        shownVerdict
+          ? h(
+              Typography,
+              { variant: 'body2', 'data-testid': 'plugin-hub-compatibility' },
+              h('b', null, 'Compatibility: '),
+              compatibilityLabel(shownVerdict),
+              shownVerdict.status === 'True' && entry.compat?.coreVersion
+                ? ` (${entry.compat.coreVersion})`
+                : ''
+            )
           : null,
         entry.maturity
           ? h(
@@ -441,16 +496,11 @@ export function Drawer(props: {
               })
             )
           : null,
-        entry.compatibility?.openeverest
-          ? h(
-              Typography,
-              { variant: 'body2' },
-              h('b', null, 'Requires OpenEverest: '),
-              entry.compatibility.openeverest
-            )
-          : null,
         entry.license
           ? h(Typography, { variant: 'body2' }, h('b', null, 'License: '), entry.license)
+          : null,
+        entry.publisher
+          ? h(Typography, { variant: 'body2' }, h('b', null, 'Publisher: '), entry.publisher)
           : null,
         entry.verified
           ? h(Typography, { variant: 'body2' }, h('b', null, 'Verified: '), 'yes')

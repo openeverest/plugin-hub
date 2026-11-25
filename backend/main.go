@@ -15,6 +15,8 @@
 //  5. Installer (opt-out)      — admin-only one-click install / upgrade /
 //                                uninstall of catalog entries via the Helm
 //                                SDK. See installer.go.
+//  6. Compatibility            — which catalog releases work with the
+//                                OpenEverest in the cluster. See compat.go.
 package main
 
 import (
@@ -720,13 +722,14 @@ type extensionSummary struct {
 	Icon             string         `json:"icon"`
 	Homepage         string         `json:"homepage"`
 	SourceRepo       string         `json:"sourceRepo"`
+	Publisher        string         `json:"publisher,omitempty"`
+	ThirdParty       bool           `json:"thirdParty,omitempty"`
 	License          string         `json:"license"`
 	Verified         bool           `json:"verified"`
 	Health           string         `json:"health"`
 	Categories       []string       `json:"categories"`
 	Keywords         []string       `json:"keywords"`
 	Maintainers      []any          `json:"maintainers"`
-	Compatibility    map[string]any `json:"compatibility"`
 	Artifacts        map[string]any `json:"artifacts"`
 	Install          map[string]any `json:"install"`
 	Plugin           map[string]any `json:"plugin,omitempty"`
@@ -775,6 +778,7 @@ func main() {
 	mux.HandleFunc("GET /api/installed", makeInstalledHandler())
 	mux.HandleFunc("GET /api/summary", makeSummaryHandler(cache, icons))
 	mux.HandleFunc("GET /api/icon/{key}", icons.serve)
+	mux.HandleFunc("GET /api/compatibility", makeCompatibilityHandler(cache, clusterCRDGetter))
 	registerInstallerRoutes(mux, inst, cache)
 
 	port := listenPort()

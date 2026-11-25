@@ -3,9 +3,11 @@
 import { pluginFetch } from './runtime';
 import type {
   CatalogEntry,
+  CompatibilityResponse,
   ExtensionType,
   InstalledResponse,
   InstallerAction,
+  InstallerActionOptions,
   InstallerStatus,
   ReleaseInfo,
   SummaryResponse,
@@ -56,18 +58,42 @@ export async function fetchInstallerStatus(): Promise<InstallerStatus> {
   }
 }
 
+// fetchCompatibility never rejects: without it the hub offers each channel's
+// newest release, as it did before compatibility was checked.
+export async function fetchCompatibility(): Promise<CompatibilityResponse> {
+  try {
+    const res = await pluginFetch('/api/compatibility');
+    if (!res.ok) return {};
+    return (await res.json()) as CompatibilityResponse;
+  } catch {
+    return {};
+  }
+}
+
+// InstallerError carries whether the backend refused the release because it
+// does not work with the cluster, which the user may then acknowledge.
+export class InstallerError extends Error {
+  incompatible: boolean;
+
+  constructor(message: string, incompatible: boolean) {
+    super(message);
+    this.incompatible = incompatible;
+  }
+}
+
 export async function runInstallerAction(
   action: InstallerAction,
   entry: CatalogEntry,
+  options: InstallerActionOptions = {},
 ): Promise<ReleaseInfo> {
   const res = await pluginFetch(`/api/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: entry.type, name: entry.name }),
+    body: JSON.stringify({ type: entry.type, name: entry.name, ...options }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(body?.error || `HTTP ${res.status}`);
+    throw new InstallerError(body?.error || `HTTP ${res.status}`, body?.incompatible === true);
   }
   return body as ReleaseInfo;
 }

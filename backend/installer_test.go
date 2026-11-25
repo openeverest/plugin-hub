@@ -1,6 +1,25 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chartutil"
+	kubefake "helm.sh/helm/v3/pkg/kube/fake"
+	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/storage"
+	"helm.sh/helm/v3/pkg/storage/driver"
+)
 
 func TestEvaluatePermissions(t *testing.T) {
 	tests := []struct {
@@ -81,11 +100,11 @@ func TestResolveTarget(t *testing.T) {
 	want := installTarget{
 		Type: "plugin", Name: "plugin-metrics",
 		ChartRef: "oci://ghcr.io/openeverest/charts/plugin-metrics", Version: "0.2.2",
-		Release: "metrics", Namespace: "everest-system",
+		Releases: []catalogRelease{{Version: "0.2.2"}},
+		Release:  "metrics", Namespace: "everest-system",
+		RootObjectNames: []string{"plugin-metrics"},
 	}
-	if got != want {
-		t.Fatalf("got %+v, want %+v", got, want)
-	}
+	assert.Equal(t, want, got)
 
 	if _, err := resolveTarget(index, "provider", "plugin-metrics"); err == nil {
 		t.Fatal("type mismatch must not resolve")
@@ -133,4 +152,160 @@ func TestTargetProviderName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveTargetReadsCatalogReleases(t *testing.T) {
+	index := extensionIndex{Extensions: []extensionSummary{chartEntry("psmdb", "provider", map[string]any{
+		"ref": "oci://example/psmdb", "version": "0.8.0", "head": "0.8.0",
+		"releases": []any{indexRelease("0.8.0", "2.2.0"), indexRelease("0.7.0", "")},
+	})}}
+	got, err := resolveTarget(index, "provider", "psmdb")
+	require.NoError(t, err)
+	assert.Equal(t, "0.8.0", got.Version)
+	assert.Equal(t, []catalogRelease{
+		{Version: "0.8.0", Digest: "sha256:0.8.0", ContractVersion: "2.2.0"},
+		{Version: "0.7.0", Digest: "sha256:0.7.0"},
+	}, got.Releases)
+}
+
+func revision(version int, status release.Status) *release.Release {
+	return &release.Release{
+		Name: "demo", Namespace: "everest-system", Version: version,
+		Info:  &release.Info{Status: status},
+		Chart: demoChart("0.6.0"),
+	}
+}
+
+func TestNeverDeployed(t *testing.T) {
+	tests := []struct {
+		name string
+		hist []*release.Release
+		want bool
+	}{
+		{"failed first install", []*release.Release{revision(1, release.StatusFailed)}, true},
+		{"failed retry of a failed install", []*release.Release{
+			revision(1, release.StatusFailed), revision(2, release.StatusFailed),
+		}, true},
+		{"deployed", []*release.Release{revision(1, release.StatusDeployed)}, false},
+		{"failed upgrade of a deployed release", []*release.Release{
+			revision(1, release.StatusSuperseded), revision(2, release.StatusFailed),
+		}, false},
+		{"install in progress", []*release.Release{revision(1, release.StatusPendingInstall)}, false},
+		{"no history", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, neverDeployed(tt.hist))
+		})
+	}
+}
+
+func demoChart(version string) *chart.Chart {
+	return &chart.Chart{
+		Metadata: &chart.Metadata{APIVersion: chart.APIVersionV2, Name: "demo", Version: version},
+		Templates: []*chart.File{{
+			Name: "templates/configmap.yaml",
+			Data: []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n"),
+		}},
+	}
+}
+
+func memoryConfig(t *testing.T) *action.Configuration {
+	t.Helper()
+	return &action.Configuration{
+		Releases:     storage.Init(driver.NewMemory()),
+		KubeClient:   &kubefake.PrintingKubeClient{Out: io.Discard},
+		Capabilities: chartutil.DefaultCapabilities,
+		Log:          func(string, ...any) {},
+	}
+}
+
+func TestFailedFirstInstallCanBeRetried(t *testing.T) {
+	cfg := memoryConfig(t)
+	target := installTarget{Name: "demo", Release: "demo", Namespace: "everest-system"}
+
+	replace, err := replaceableRelease(cfg, target)
+	require.NoError(t, err)
+	assert.False(t, replace, "nothing to replace before the first install")
+
+	require.NoError(t, cfg.Releases.Create(revision(1, release.StatusFailed)))
+	_, err = newInstallAction(cfg, target, false).RunWithContext(context.Background(), demoChart("0.7.0"), nil)
+	require.Error(t, err, "Helm alone refuses to install over a failed release")
+
+	replace, err = replaceableRelease(cfg, target)
+	require.NoError(t, err)
+	require.True(t, replace)
+	rel, err := newInstallAction(cfg, target, replace).RunWithContext(context.Background(), demoChart("0.7.0"), nil)
+	require.NoError(t, err)
+	assert.Equal(t, 2, rel.Version)
+	assert.Equal(t, release.StatusDeployed, rel.Info.Status)
+	assert.False(t, failedFirstInstall(cfg, revision(1, release.StatusFailed)),
+		"once a revision is deployed the release is no longer a failed install")
+
+	_, err = replaceableRelease(cfg, target)
+	var conflict errConflict
+	require.ErrorAs(t, err, &conflict, "a deployed release is not replaced")
+}
+
+func TestFailedFirstInstallIgnoresOtherNamespaces(t *testing.T) {
+	mem := driver.NewMemory()
+	cfg := memoryConfig(t)
+	cfg.Releases = storage.Init(mem)
+	require.NoError(t, cfg.Releases.Create(revision(1, release.StatusFailed)))
+	other := revision(1, release.StatusDeployed)
+	other.Namespace = "elsewhere"
+	require.NoError(t, cfg.Releases.Create(other))
+	// Like the release list, which spans every namespace.
+	mem.SetNamespace("")
+
+	assert.True(t, failedFirstInstall(cfg, revision(1, release.StatusFailed)))
+}
+
+func TestAcknowledgeValues(t *testing.T) {
+	assert.Equal(t, map[string]any{
+		"compatibility": map[string]any{"acknowledge": map[string]any{"coreVersion": "2.1.0"}},
+	}, acknowledgeValues("2.1.0"))
+}
+
+func TestInstallerActionHandler(t *testing.T) {
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"enabled": false, "permissions": []}`))
+	}))
+	defer core.Close()
+	t.Setenv("EVEREST_API_URL", core.URL)
+	index, err := json.Marshal(testIndex())
+	require.NoError(t, err)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(index)
+	}))
+	defer hub.Close()
+	cache := newCatalogCache(hub.URL, time.Minute)
+
+	call := func(opErr error) (*httptest.ResponseRecorder, actionRequest) {
+		var got actionRequest
+		op := func(_ context.Context, _ installTarget, req actionRequest) (releaseInfo, error) {
+			got = req
+			return releaseInfo{Release: "psmdb", Status: "deployed"}, opErr
+		}
+		body := `{"type": "provider", "name": "percona-server-mongodb", "version": "0.8.0", "acknowledgeIncompatible": true}`
+		req := httptest.NewRequest(http.MethodPost, "/api/install", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		makeInstallerActionHandler(&installer{enabled: true}, cache, "install", op)(rec, req)
+		return rec, got
+	}
+
+	rec, req := call(nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "0.8.0", req.Version)
+	assert.True(t, req.AcknowledgeIncompatible)
+
+	rec, _ = call(errIncompatible{msg: "needs OpenEverest 2.2.0 or later", reason: "CoreTooOld", needs: "2.2.0", recommended: "0.7.0"})
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.JSONEq(t,
+		`{"error": "needs OpenEverest 2.2.0 or later", "incompatible": true, "reason": "CoreTooOld", "needs": "2.2.0", "recommended": "0.7.0"}`,
+		rec.Body.String())
+
+	rec, _ = call(errBadRequest{"9.9.9 is not a release"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
