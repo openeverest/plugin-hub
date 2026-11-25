@@ -10,6 +10,12 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+compatibility:
+  # Treat the cluster as OpenShift and leave runAsUser to its restricted-v2 SCC.
+  # Detected automatically from the SecurityContextConstraints API; set it when
+  # rendering without cluster access (helm template).
+  openshift: false
+
 service:
   port: 8080
 

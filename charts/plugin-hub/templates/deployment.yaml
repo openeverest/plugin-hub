@@ -24,9 +24,12 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
-        # The image declares no USER, so it would run as root.
+        {{- if not (or (dig "compatibility" "openshift" false .Values.AsMap) (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints")) }}
+        # The image declares no USER, so it would run as root. OpenShift's
+        # restricted-v2 SCC assigns a UID from the namespace range instead.
         runAsUser: 65532
         runAsGroup: 65532
+        {{- end }}
         seccompProfile:
           type: RuntimeDefault
       volumes:
