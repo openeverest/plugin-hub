@@ -22,6 +22,17 @@ spec:
       {{- if .Values.installer.enabled }}
       serviceAccountName: {{ include "plugin-hub.fullname" . }}-installer
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # The image declares no USER, so it would run as root.
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        # The installer keeps the Helm SDK cache under /tmp/helm.
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -72,3 +83,12 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
