@@ -3,7 +3,7 @@ module github.com/openeverest/plugin-hub/backend
 go 1.27.1
 
 require (
-	github.com/openeverest/openeverest/v2 v2.0.0-dev.2.0.20261125163324-baa7302420dd
+	github.com/openeverest/openeverest/v2 v2.0.0-dev.2.0.20261125191651-0ef25a9e4f38
 	github.com/stretchr/testify v1.12.1
 	helm.sh/helm/v3 v3.22.1
 	k8s.io/api v0.37.2
