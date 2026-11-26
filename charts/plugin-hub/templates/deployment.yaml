@@ -12,7 +12,8 @@ spec:
       {{- include "plugin-hub.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.openshift.requiredSCC }}
+      {{- /* dig: values reused from releases predating this key lack it. */}}
+      {{- with dig "openshift" "requiredSCC" "restricted-v2" .Values.AsMap }}
       annotations:
         # OpenShift >= 4.14 admits the pod only under this SCC. Other clusters
         # ignore it.
