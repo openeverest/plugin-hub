@@ -22,6 +22,20 @@ spec:
       {{- if .Values.installer.enabled }}
       serviceAccountName: {{ include "plugin-hub.fullname" . }}-installer
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        {{- if not (or (dig "compatibility" "openshift" false .Values.AsMap) (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints")) }}
+        # The image declares no USER, so it would run as root. OpenShift's
+        # restricted-v2 SCC assigns a UID from the namespace range instead.
+        runAsUser: 65532
+        runAsGroup: 65532
+        {{- end }}
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        # The installer keeps the Helm SDK cache under /tmp/helm.
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -72,3 +86,12 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
