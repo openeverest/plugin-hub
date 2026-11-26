@@ -40,6 +40,11 @@ ENV HELM_CACHE_HOME=/tmp/helm/cache \
     HELM_CONFIG_HOME=/tmp/helm/config \
     HELM_DATA_HOME=/tmp/helm/data
 
+# Numeric non-root user, so runAsNonRoot works without a fixed runAsUser in
+# the chart. OpenShift's restricted-v2 SCC overrides it with a UID from the
+# namespace range.
+USER 65532:65532
+
 EXPOSE 8080
 
 ENTRYPOINT ["server"]

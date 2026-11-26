@@ -10,11 +10,13 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-compatibility:
-  # Treat the cluster as OpenShift and leave runAsUser to its restricted-v2 SCC.
-  # Detected automatically from the SecurityContextConstraints API; set it when
-  # rendering without cluster access (helm template).
-  openshift: false
+openshift:
+  # SCC the pod must run under on OpenShift >= 4.14 (pod annotation
+  # `openshift.io/required-scc`). With the installer enabled the pod's
+  # ServiceAccount is cluster-admin and may `use` any SCC, so without this pin
+  # OpenShift could admit it under a broader one. Ignored by other clusters;
+  # set to "" to drop the annotation.
+  requiredSCC: restricted-v2
 
 service:
   port: 8080
@@ -61,7 +63,8 @@ clusterName: ""
 # ClusterRoles, so installing them needs cluster-wide rights. Anyone who can
 # change this plugin's image or `hubIndexURL` effectively gains those rights.
 # In-app, only OpenEverest admins (users allowed to create plugins) can trigger
-# installs.
+# installs. On OpenShift, cluster-admin can use any SCC, so the pod's hardening
+# must not rely on SCC enforcement; see `openshift.requiredSCC`.
 installer:
   enabled: true
   clusterRole: cluster-admin

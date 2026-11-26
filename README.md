@@ -60,6 +60,9 @@ Edit `charts/plugin-hub/values.yaml` (or pass `--set` flags):
 | `cacheTTLSeconds` | Catalog cache TTL (seconds) | `300` when empty |
 | `installer.enabled` | One-click install/upgrade/uninstall from the UI (grants the plugin cluster-wide rights — see below). Set to `false` to opt out | `true` |
 | `installer.clusterRole` | ClusterRole bound to the plugin's ServiceAccount when the installer is enabled | `cluster-admin` |
+| `openshift.requiredSCC` | SCC pinned via the `openshift.io/required-scc` pod annotation (OpenShift ≥ 4.14; ignored elsewhere). `""` drops it | `restricted-v2` |
+
+The pod meets the `restricted` Pod Security Standard and OpenShift's `restricted-v2` SCC with no cluster detection: the image runs as `USER 65532:65532` and the chart sets no fixed UID/GID, so OpenShift can assign one from the namespace range.
 
 ## One-click install, upgrade & uninstall
 
@@ -97,6 +100,8 @@ For local development, set `INSTALLER_ENABLED=false` in `dev/.env` (this repo's 
 - Not handled: prerequisites (e.g. cert-manager), CRD updates on upgrade or removal on uninstall (Helm limitation), releases installed under a non-default name, and plugin-hub modifying itself — use Helm directly for those.
 
 > **Security note.** With the installer enabled (the default), plugin-hub effectively holds cluster-admin. Anyone who can change its image or its `hubIndexURL` can use those rights — treat the catalog URL as a root of trust.
+>
+> On OpenShift, cluster-admin may `use` any SCC, so the pod's hardening must not rely on SCC enforcement. The chart pins `restricted-v2` with `openshift.io/required-scc` so the pod can't fall back to a broader SCC (OpenShift ≥ 4.14; older releases ignore the annotation). Charts the installer deploys are rendered by the Helm SDK against the live cluster, so their own OpenShift detection (`.Capabilities.APIVersions.Has`) works.
 
 ## Compatibility
 
