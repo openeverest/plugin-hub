@@ -113,6 +113,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The previous release's tag, to see whether the chart changed.
+          fetch-depth: 0
 
       - name: Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
@@ -130,6 +133,25 @@ jobs:
           CHART="charts/plugin-hub/Chart.yaml"
           sed -i "s/^version:.*/version: ${VERSION}/" "$CHART"
           sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" "$CHART"
+          cat "$CHART"
+
+      # The oldest plugin-hub chart that runs this release's image, which the
+      # hub reads to update a bundled plugin-hub image without a new chart.
+      # An unchanged chart runs whatever the previous release's ran; any
+      # change to it needs this release's chart.
+      - name: Set the minimum chart version
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          CHART="charts/plugin-hub/Chart.yaml"
+          MIN="${VERSION}"
+          PREV="$(git describe --tags --abbrev=0 --match 'v*.*.*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -n "${PREV}" ] && git diff --quiet "${PREV}" "${GITHUB_REF_NAME}" -- charts/plugin-hub; then
+            PREV_MIN="$(helm show chart "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/plugin-hub" \
+              --version "${PREV#v}" | yq '.annotations["openeverest.io/min-chart-version"] // ""')"
+            MIN="${PREV_MIN:-${PREV#v}}"
+          fi
+          echo "previous release ${PREV:-none}; minimum chart ${MIN}"
+          MIN="${MIN}" yq -i '.annotations["openeverest.io/min-chart-version"] = strenv(MIN)' "$CHART"
           cat "$CHART"
 
       - name: Bump image in values.yaml

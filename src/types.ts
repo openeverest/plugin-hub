@@ -77,6 +77,9 @@ export interface CatalogEntry {
   // Helm release backing this entry; only known to admins when the installer
   // is enabled. Carries the real chart version used for upgrade detection.
   release?: ReleaseInfo;
+  // plugin-hub's own entry: the release that runs, which an image-only
+  // update moves past the chart version.
+  runningVersion?: string;
   // Which releases work with the OpenEverest in the cluster; absent when it
   // could not be checked.
   compat?: EntryCompatibility;
@@ -152,6 +155,32 @@ export interface InstallerStatus {
   releases?: Record<string, ReleaseInfo>;
   // "<type>:<name>" of plugin-hub's own entry; one-click actions are hidden for it.
   self?: string;
+  // How plugin-hub itself can be updated (admins only).
+  selfUpdate?: SelfUpdateStatus;
+  error?: string;
+}
+
+// bundled: a dependency of the OpenEverest chart, updated in place by changing
+// its image; standalone: its own Helm release; unmanaged: no Helm release
+// (Argo CD, OLM), updated where it is deployed.
+export type SelfUpdateMode = 'bundled' | 'standalone' | 'unmanaged';
+
+export interface SelfUpdateStatus {
+  mode?: SelfUpdateMode;
+  release?: string;
+  namespace?: string;
+  parentChart?: string;
+  parentChartVersion?: string;
+  parentChartRepository?: string;
+  // The running plugin-hub chart and release.
+  chartVersion?: string;
+  version?: string;
+  // The value that sets plugin-hub's image tag.
+  valuesPath: string;
+  // The newest release plugin-hub can update to.
+  available?: string;
+  // A newer release that needs a newer plugin-hub chart than the running one.
+  blocked?: { version: string; minChartVersion: string };
   error?: string;
 }
 

@@ -83,6 +83,15 @@ type installer struct {
 	// them in.
 	selfChartVersion string
 	selfAppVersion   string
+	// selfImageTag is the image tag the chart runs; an image-only update
+	// changes it but not the chart.
+	selfImageTag string
+	// selfTemplatePath is the chart's .Template.BasePath, which locates
+	// plugin-hub's values in its parent chart.
+	selfTemplatePath string
+	// coreChartRepo is where the chart plugin-hub is bundled in is pulled
+	// from to update the image (see selfupdate.go).
+	coreChartRepo string
 
 	settings *cli.EnvSettings
 	registry *registry.Client
@@ -100,7 +109,13 @@ func newInstaller() *installer {
 		selfNamespace:    os.Getenv("POD_NAMESPACE"),
 		selfChartVersion: os.Getenv("PLUGIN_HUB_CHART_VERSION"),
 		selfAppVersion:   os.Getenv("PLUGIN_HUB_APP_VERSION"),
+		selfImageTag:     os.Getenv("PLUGIN_HUB_IMAGE_TAG"),
+		selfTemplatePath: os.Getenv("PLUGIN_HUB_TEMPLATE_PATH"),
+		coreChartRepo:    os.Getenv("PLUGIN_HUB_CORE_CHART_REPO"),
 		crds:             clusterCRDGetter,
+	}
+	if inst.coreChartRepo == "" {
+		inst.coreChartRepo = defaultCoreChartRepo
 	}
 	if !inst.enabled {
 		return inst
@@ -364,6 +379,9 @@ func (i *installer) selfReleaseInfo(rel *release.Release) releaseInfo {
 		info.ChartVersion = i.selfChartVersion
 		info.AppVersion = i.selfAppVersion
 	}
+	if v := i.runningVersion(); v != "" {
+		info.AppVersion = v
+	}
 	return info
 }
 
@@ -505,7 +523,12 @@ func neverDeployed(hist []*release.Release) bool {
 func (i *installer) upgrade(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	return i.upgradeLocked(ctx, t, req)
+}
 
+// upgradeLocked upgrades t's release to a release of its catalog channel. The
+// caller holds i.mu.
+func (i *installer) upgradeLocked(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 	cfg, err := i.actionConfig(t.Namespace)
 	if err != nil {
 		return releaseInfo{}, err
@@ -701,8 +724,10 @@ type installerStatus struct {
 	Releases   map[string]releaseInfo `json:"releases,omitempty"`
 	// Self is the "<type>:<name>" key of plugin-hub's own catalog entry, which
 	// the installer refuses to modify; the UI hides one-click actions for it.
-	Self  string `json:"self,omitempty"`
-	Error string `json:"error,omitempty"`
+	Self string `json:"self,omitempty"`
+	// SelfUpdate says how plugin-hub itself can be updated.
+	SelfUpdate *selfUpdateStatus `json:"selfUpdate,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.HandlerFunc {
@@ -735,6 +760,7 @@ func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.Handl
 		}
 		status.Releases = releases
 		status.Self = inst.selfKey(index)
+		status.SelfUpdate = inst.selfUpdateStatus(r.Context(), index)
 		writeJSON(w, http.StatusOK, status)
 	}
 }
@@ -768,28 +794,15 @@ func registerInstallerRoutes(mux *http.ServeMux, inst *installer, cache *catalog
 		func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 			return inst.uninstall(ctx, t, req.Confirm)
 		}))
+	mux.HandleFunc("POST /api/self-update", makeSelfUpdateHandler(inst, cache))
 }
 
 // authorizeTarget applies both installer gates and resolves the catalog
 // entry. On failure it has already written the HTTP error and returns false.
 func authorizeTarget(w http.ResponseWriter, r *http.Request, inst *installer, cache *catalogCache,
 	verb, extType, name string) (installTarget, callerIdentity, bool) {
-	if !inst.enabled {
-		apiError(w, http.StatusForbidden, "installer is disabled; enable it with --set installer.enabled=true")
-		return installTarget{}, callerIdentity{}, false
-	}
-	caller, err := resolveCaller(resolveAuthHeader(r))
-	if err != nil {
-		apiError(w, http.StatusBadGateway, "could not verify permissions: "+err.Error())
-		return installTarget{}, callerIdentity{}, false
-	}
-	if !caller.canAdmin {
-		apiError(w, http.StatusForbidden, "only administrators can "+verb+" extensions")
-		return installTarget{}, callerIdentity{}, false
-	}
-	index, err := loadIndex(cache)
-	if err != nil {
-		apiError(w, http.StatusBadGateway, err.Error())
+	caller, index, ok := authorizeAdmin(w, r, inst, cache, verb+" extensions")
+	if !ok {
 		return installTarget{}, callerIdentity{}, false
 	}
 	target, err := resolveTarget(index, extType, name)
@@ -802,6 +815,31 @@ func authorizeTarget(w http.ResponseWriter, r *http.Request, inst *installer, ca
 		return installTarget{}, callerIdentity{}, false
 	}
 	return target, caller, true
+}
+
+// authorizeAdmin applies both installer gates and loads the catalog. On
+// failure it has already written the HTTP error and returns false.
+func authorizeAdmin(w http.ResponseWriter, r *http.Request, inst *installer, cache *catalogCache,
+	what string) (callerIdentity, extensionIndex, bool) {
+	if !inst.enabled {
+		apiError(w, http.StatusForbidden, "installer is disabled; enable it with --set installer.enabled=true")
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	caller, err := resolveCaller(resolveAuthHeader(r))
+	if err != nil {
+		apiError(w, http.StatusBadGateway, "could not verify permissions: "+err.Error())
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	if !caller.canAdmin {
+		apiError(w, http.StatusForbidden, "only administrators can "+what)
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	index, err := loadIndex(cache)
+	if err != nil {
+		apiError(w, http.StatusBadGateway, err.Error())
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	return caller, index, true
 }
 
 type uninstallPreflight struct {
@@ -857,32 +895,37 @@ func makeInstallerActionHandler(inst *installer, cache *catalogCache, verb strin
 		info, err := op(ctx, target, req)
 		if err != nil {
 			log.Printf("installer: %s of %s %q failed: %v", verb, target.Type, target.Name, err)
-			var inUse errInstancesInUse
-			if errors.As(err, &inUse) {
-				writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "instances": inUse.instances})
-				return
-			}
-			var conflict errConflict
-			if errors.As(err, &conflict) {
-				apiError(w, http.StatusConflict, err.Error())
-				return
-			}
-			var incompatible errIncompatible
-			if errors.As(err, &incompatible) {
-				writeJSON(w, http.StatusConflict, incompatible.body())
-				return
-			}
-			var badRequest errBadRequest
-			if errors.As(err, &badRequest) {
-				apiError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			apiError(w, http.StatusInternalServerError, verb+" failed: "+err.Error())
+			writeOperationError(w, verb, err)
 			return
 		}
 		log.Printf("installer: %s of %s %q succeeded (status %s)", verb, target.Type, target.Name, info.Status)
 		writeJSON(w, http.StatusOK, info)
 	}
+}
+
+// writeOperationError maps the error of a Helm operation to its HTTP response.
+func writeOperationError(w http.ResponseWriter, verb string, err error) {
+	var inUse errInstancesInUse
+	if errors.As(err, &inUse) {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "instances": inUse.instances})
+		return
+	}
+	var conflict errConflict
+	if errors.As(err, &conflict) {
+		apiError(w, http.StatusConflict, err.Error())
+		return
+	}
+	var incompatible errIncompatible
+	if errors.As(err, &incompatible) {
+		writeJSON(w, http.StatusConflict, incompatible.body())
+		return
+	}
+	var badRequest errBadRequest
+	if errors.As(err, &badRequest) {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	apiError(w, http.StatusInternalServerError, verb+" failed: "+err.Error())
 }
 
 func loadIndex(cache *catalogCache) (extensionIndex, error) {

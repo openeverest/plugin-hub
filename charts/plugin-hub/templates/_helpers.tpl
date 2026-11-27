@@ -31,13 +31,27 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
+The plugin-hub release that runs: the image tag when it is a version, which
+an update from the hub's own UI sets without changing the chart, else the
+chart's appVersion.
+*/}}
+{{- define "plugin-hub.version" -}}
+{{- $tag := toString (.Values.image.tag | default "") | trimPrefix "v" }}
+{{- if regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+" $tag }}
+{{- $tag }}
+{{- else }}
+{{- .Chart.AppVersion }}
+{{- end }}
+{{- end }}
+
+{{/*
 Common labels
 */}}
 {{- define "plugin-hub.labels" -}}
 helm.sh/chart: {{ include "plugin-hub.chart" . }}
 {{ include "plugin-hub.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- with include "plugin-hub.version" . }}
+app.kubernetes.io/version: {{ . | replace "+" "_" | trunc 63 | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
