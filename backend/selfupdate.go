@@ -391,7 +391,7 @@ func (i *installer) updateBundledImage(ctx context.Context, p selfPlan, version 
 		return releaseInfo{}, err
 	}
 
-	ch, err := i.loadParentChart(up.ChartPathOptions, p.rel)
+	ch, err := i.loadParentChart(up.ChartPathOptions, p.rel, version)
 	if err != nil {
 		return releaseInfo{}, err
 	}
@@ -405,15 +405,16 @@ func (i *installer) updateBundledImage(ctx context.Context, p selfPlan, version 
 }
 
 // loadParentChart pulls the chart rel runs from the core chart repository and
-// checks it is that chart, with the running plugin-hub chart in it.
-func (i *installer) loadParentChart(opts action.ChartPathOptions, rel *release.Release) (*chart.Chart, error) {
+// checks it is that chart, with the running plugin-hub chart in it. version is
+// the plugin-hub version the failure hint sets.
+func (i *installer) loadParentChart(opts action.ChartPathOptions, rel *release.Release, target string) (*chart.Chart, error) {
 	if rel.Chart == nil || rel.Chart.Metadata == nil {
 		return nil, fmt.Errorf("release %s/%s has no chart", rel.Namespace, rel.Name)
 	}
 	name, version := rel.Chart.Metadata.Name, rel.Chart.Metadata.Version
 	ref, repoURL := chartLocation(i.coreChartRepo, name)
 	manual := "update plugin-hub with helm: " + manualUpdateCommand(rel.Name, rel.Namespace, ref, repoURL, version,
-		i.imageTagPath(true), "<version>")
+		i.imageTagPath(true), target)
 	opts.Version = version
 	opts.RepoURL = repoURL
 	ch, err := i.loadChart(&opts, ref)
@@ -503,7 +504,11 @@ func makeSelfUpdateHandler(inst *installer, cache *catalogCache) http.HandlerFun
 		if requested == "" {
 			requested = "newest available"
 		}
-		log.Printf("installer: %s requested a self-update of plugin-hub to %s", caller.subject, requested)
+		who := caller.subject
+		if who == "" {
+			who = "an admin"
+		}
+		log.Printf("installer: %s requested a self-update of plugin-hub to %s", who, requested)
 		ctx, cancel := context.WithTimeout(r.Context(), helmOperationTimeout)
 		defer cancel()
 		info, err := inst.selfUpdate(ctx, index, req.Version)
