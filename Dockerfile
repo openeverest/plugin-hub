@@ -24,6 +24,11 @@ COPY src/icon.png ./dist/icon.png
 
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o server .
 
+# Kubelet hands the runtime only the image's UID, and the GID is then looked
+# up in /etc/passwd; without an entry the process would run with GID 0.
+RUN echo 'nonroot:x:65532:65532:nonroot:/tmp:/sbin/nologin' >> /etc/passwd && \
+    echo 'nonroot:x:65532:' >> /etc/group
+
 # ──────────────────────────────────────────────────────────────────
 # Stage 2 — Minimal runtime image.
 # No RUN steps here: they would execute on the target platform and
@@ -33,12 +38,18 @@ FROM alpine:3.19
 
 COPY --from=backend-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=backend-builder /app/server /usr/local/bin/server
+COPY --from=backend-builder /etc/passwd /etc/group /etc/
 
 # The installer pulls charts via the Helm SDK; keep its cache/config in a
 # writable scratch location.
 ENV HELM_CACHE_HOME=/tmp/helm/cache \
     HELM_CONFIG_HOME=/tmp/helm/config \
     HELM_DATA_HOME=/tmp/helm/data
+
+# Numeric non-root user, so runAsNonRoot works without a fixed runAsUser in
+# the chart. OpenShift's restricted-v2 SCC overrides it with a UID from the
+# namespace range.
+USER 65532:65532
 
 EXPOSE 8080
 

@@ -12,6 +12,13 @@ spec:
       {{- include "plugin-hub.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- /* dig: values reused from releases predating this key lack it. */}}
+      {{- with dig "openshift" "requiredSCC" "restricted-v2" .Values.AsMap }}
+      annotations:
+        # OpenShift >= 4.14 admits the pod only under this SCC. Other clusters
+        # ignore it.
+        openshift.io/required-scc: {{ . | quote }}
+      {{- end }}
       labels:
         {{- include "plugin-hub.selectorLabels" . | nindent 8 }}
     spec:
@@ -22,14 +29,10 @@ spec:
       {{- if .Values.installer.enabled }}
       serviceAccountName: {{ include "plugin-hub.fullname" . }}-installer
       {{- end }}
+      # No fixed runAsUser/runAsGroup: the image runs as USER 65532:65532, and
+      # OpenShift's restricted-v2 SCC assigns a UID from the namespace range.
       securityContext:
         runAsNonRoot: true
-        {{- if not (or (dig "compatibility" "openshift" false .Values.AsMap) (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints")) }}
-        # The image declares no USER, so it would run as root. OpenShift's
-        # restricted-v2 SCC assigns a UID from the namespace range instead.
-        runAsUser: 65532
-        runAsGroup: 65532
-        {{- end }}
         seccompProfile:
           type: RuntimeDefault
       volumes:
