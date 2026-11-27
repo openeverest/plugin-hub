@@ -70,6 +70,22 @@ spec:
               value: "true"
             - name: PLUGIN_HUB_RELEASE_NAME
               value: {{ .Release.Name | quote }}
+            # This chart's versions; as a subchart they differ from the
+            # release's chart, and Helm does not store subcharts in the release.
+            - name: PLUGIN_HUB_CHART_VERSION
+              value: {{ .Chart.Version | quote }}
+            - name: PLUGIN_HUB_APP_VERSION
+              value: {{ .Chart.AppVersion | quote }}
+            # The image tag and where this chart sits in the release's chart,
+            # for an update from the hub's own UI.
+            - name: PLUGIN_HUB_IMAGE_TAG
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+            - name: PLUGIN_HUB_TEMPLATE_PATH
+              value: {{ .Template.BasePath | quote }}
+            {{- with .Values.installer.coreChartRepository }}
+            - name: PLUGIN_HUB_CORE_CHART_REPO
+              value: {{ . | quote }}
+            {{- end }}
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

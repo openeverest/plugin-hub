@@ -60,6 +60,7 @@ Edit `charts/plugin-hub/values.yaml` (or pass `--set` flags):
 | `cacheTTLSeconds` | Catalog cache TTL (seconds) | `300` when empty |
 | `installer.enabled` | One-click install/upgrade/uninstall from the UI (grants the plugin cluster-wide rights — see below). Set to `false` to opt out | `true` |
 | `installer.clusterRole` | ClusterRole bound to the plugin's ServiceAccount when the installer is enabled | `cluster-admin` |
+| `installer.coreChartRepository` | Repository (`https://` or `oci://`) the hub pulls the OpenEverest chart from to [update itself](#updating-plugin-hub-itself) when bundled in it | `https://openeverest.github.io/helm-charts` when empty |
 | `openshift.requiredSCC` | SCC pinned via the `openshift.io/required-scc` pod annotation (OpenShift ≥ 4.14; ignored elsewhere). `""` drops it | `restricted-v2` |
 
 The pod meets the `restricted` Pod Security Standard and OpenShift's `restricted-v2` SCC with no cluster detection: the image runs as `USER 65532:65532` and the chart sets no fixed UID/GID, so OpenShift can assign one from the namespace range.
@@ -97,7 +98,20 @@ For local development, set `INSTALLER_ENABLED=false` in `dev/.env` (this repo's 
 - When a Helm hook Job or Pod fails, the error shows the last lines of its logs (or why its container never started), not just `BackoffLimitExceeded`.
 - Upgrade availability is computed from the Helm release's chart version, so it is accurate even when a chart's `appVersion` differs.
 - Uninstall runs `helm uninstall` on that release after a confirmation dialog. If **instances still use a provider** (matched on `spec.providerRef.name` across all namespaces), the dialog lists them and the admin must type `UNINSTALL`; the backend enforces the same phrase, so the warning can't be skipped via the API. Helm keeps CRDs, so database resources are not deleted — they just stop being managed until the provider is reinstalled.
-- Not handled: prerequisites (e.g. cert-manager), CRD updates on upgrade or removal on uninstall (Helm limitation), releases installed under a non-default name, and plugin-hub modifying itself — use Helm directly for those.
+- plugin-hub recognises its own catalog entry by chart, so it also does when it runs as a subchart of the OpenEverest chart (in the core release). It shows as installed, with the version it runs rather than the release's chart, offers no install or uninstall, and [updates itself](#updating-plugin-hub-itself) its own way.
+- Not handled: prerequisites (e.g. cert-manager), CRD updates on upgrade or removal on uninstall (Helm limitation), and releases installed under a non-default name — use Helm directly for those.
+
+### Updating plugin-hub itself
+
+An admin can update plugin-hub from its own drawer (**Update to &lt;version&gt;**, `POST /api/self-update`). How depends on how it is deployed:
+
+- **Bundled in the OpenEverest chart** (the default): a subchart cannot be upgraded on its own, so the hub upgrades the release it runs in with the chart that release already runs, keeping its values (`--reuse-values`) and changing only `plugin-hub.image.tag`. Helm does not store subcharts in a release, so the hub pulls that chart, at the release's version, from `installer.coreChartRepository`, and refuses unless its templates are the stored ones and it bundles the plugin-hub chart that is running; the drawer shows the equivalent `helm upgrade` command for that case.
+- **Its own release**: the hub upgrades that release to the new plugin-hub chart, like any other extension.
+- **No Helm release** (Argo CD, OLM): the hub changes nothing and shows the value to set where it is deployed.
+
+An image-only update runs the new release on the chart already deployed, so the hub offers only releases that chart can run. Each plugin-hub chart names the oldest chart that runs its image in the `openeverest.io/min-chart-version` annotation, which the release workflow sets: the previous release's minimum when `charts/plugin-hub` did not change since, else the release itself. The catalog copies it into the release's `minChartVersion`; a release that does not name one needs its own chart. A newer release that needs a newer chart is shown as needing an OpenEverest upgrade. Releases that do not work with the OpenEverest in the cluster are not offered.
+
+The upgrade does not wait for the rollout, which replaces the pod running it; the Deployment keeps the old pod until the new one is ready, and the server finishes in-flight requests on `SIGTERM`. Reload the page once the new version runs.
 
 > **Security note.** With the installer enabled (the default), plugin-hub effectively holds cluster-admin. Anyone who can change its image or its `hubIndexURL` can use those rights — treat the catalog URL as a root of trust.
 >

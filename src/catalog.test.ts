@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   compatibilityLabel,
   countEntries,
+  currentVersion,
   helmInstallCommand,
   helmUpgradeCommand,
   incompatibleHead,
@@ -135,5 +136,14 @@ describe('compatibility helpers', () => {
     expect(helmInstallCommand(checked, '0.7.0')).toContain('--version 0.7.0');
     expect(helmInstallCommand(checked)).toContain('--version 0.8.0');
     expect(helmUpgradeCommand(checked, '0.7.0')).toContain('--version 0.7.0');
+  });
+});
+
+describe('currentVersion', () => {
+  const release = { release: 'everest', namespace: 'everest-system', chartVersion: '0.1.18', status: 'deployed' };
+
+  it('prefers the release plugin-hub runs over its chart', () => {
+    expect(currentVersion({ ...pluginEntry, release, runningVersion: '0.1.20' })).toBe('0.1.20');
+    expect(currentVersion({ ...pluginEntry, release })).toBe('0.1.18');
   });
 });

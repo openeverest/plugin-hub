@@ -143,7 +143,7 @@ const HubPage = (props: PluginRouteProps): any => {
 
   const onInstallerDone = (
     entry: CatalogEntry,
-    action: InstallerAction | 'uninstall',
+    action: InstallerAction | 'uninstall' | 'self-update',
     release: ReleaseInfo
   ) => {
     const target = `${release.namespace}/${release.release}`;
@@ -154,7 +154,9 @@ const HubPage = (props: PluginRouteProps): any => {
           : ' Reload the page to load the plugin UI.'
         : '';
     const message =
-      action === 'uninstall'
+      action === 'self-update'
+        ? `Updating plugin-hub to ${release.appVersion} in ${target}. The hub restarts once it is ready; reload the page then.`
+        : action === 'uninstall'
         ? `Uninstalled ${target}.${pluginHint}`
         : `${action === 'upgrade' ? 'Upgraded' : 'Installed'} ${target} to ${release.chartVersion} (Helm: ${release.status}).${pluginHint}`;
     setInstallerNotice({ key: installedKey(entry.type, entry.name), message });
@@ -173,11 +175,14 @@ const HubPage = (props: PluginRouteProps): any => {
       if (!installedMap) return checked;
       const installed = installedMap.get(key);
       const release = installer?.releases?.[key];
+      const runningVersion =
+        key === installer?.self ? installer?.selfUpdate?.version : undefined;
       return {
         ...checked,
         installed: !!installed || !!release,
         installedVersion: installed?.version || e.installedVersion,
         release,
+        ...(runningVersion ? { runningVersion } : {}),
       };
     });
   }, [data, installedMap, installer, compat]);

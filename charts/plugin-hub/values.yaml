@@ -68,6 +68,10 @@ clusterName: ""
 installer:
   enabled: true
   clusterRole: cluster-admin
+  # Where the hub pulls the OpenEverest chart it is bundled in from, to update
+  # its own image (https:// or oci://). Empty: the OpenEverest chart
+  # repository, https://openeverest.github.io/helm-charts.
+  coreChartRepository: ""
 
 resources:
   limits:

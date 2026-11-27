@@ -244,3 +244,86 @@ describe('Drawer compatibility', () => {
     expect(screen.queryByTestId('plugin-hub-incompatible')).toBeNull();
   });
 });
+
+describe('Drawer for plugin-hub itself', () => {
+  const hubEntry: CatalogEntry = {
+    name: 'plugin-hub',
+    type: 'plugin',
+    displayName: 'Plugin Hub',
+    installed: true,
+    runningVersion: '0.1.18',
+    release: { release: 'everest', namespace: 'everest-system', chartVersion: '0.1.18', status: 'deployed' },
+    artifacts: {
+      chart: {
+        defaultChannel: 'stable',
+        channels: { stable: { ref: 'oci://ghcr.io/openeverest/charts/plugin-hub', version: '0.2.0' } },
+      },
+    },
+  };
+  const bundled = {
+    mode: 'bundled' as const,
+    release: 'everest',
+    namespace: 'everest-system',
+    parentChart: 'openeverest',
+    parentChartVersion: '2.0.0',
+    parentChartRepository: 'https://openeverest.github.io/helm-charts',
+    chartVersion: '0.1.18',
+    version: '0.1.18',
+    valuesPath: 'plugin-hub.image.tag',
+    available: '0.1.20',
+    blocked: { version: '0.2.0', minChartVersion: '0.2.0' },
+  };
+  const selfAdmin = (selfUpdate: InstallerStatus['selfUpdate']): InstallerStatus => ({
+    ...ADMIN,
+    self: 'plugin:plugin-hub',
+    selfUpdate,
+  });
+
+  it('updates a bundled plugin-hub image after confirmation', async () => {
+    const fetch = stubFetch(() => jsonResponse(200, { ...bundled, chartVersion: '0.1.18', status: 'deployed' }));
+    const onInstallerDone = vi.fn();
+    render(
+      h(Drawer, { entry: hubEntry, installer: selfAdmin(bundled), notice: null, onInstallerDone, onClose: vi.fn() })
+    );
+    expect(screen.queryByTestId('plugin-hub-upgrade-now')).toBeNull();
+    expect(screen.getByTestId('plugin-hub-self-update-blocked').textContent).toContain(
+      'plugin-hub 0.2.0 needs plugin-hub chart 0.2.0 or later'
+    );
+    expect(screen.getByText(/--set plugin-hub.image.tag=0.1.20/)).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('plugin-hub-self-update-now'));
+    expect(screen.getByText(/keeps openeverest 2.0.0 and its values/)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('plugin-hub-self-update-confirm'));
+    await waitFor(() => expect(onInstallerDone).toHaveBeenCalled());
+    expect(fetch.mock.calls[0][0]).toContain('/api/self-update');
+    expect(requestBody(fetch)).toEqual({ version: '0.1.20' });
+    expect(onInstallerDone.mock.calls[0][1]).toBe('self-update');
+    expect(onInstallerDone.mock.calls[0][2].appVersion).toBe('0.1.20');
+  });
+
+  it('shows the error the backend returns', async () => {
+    stubFetch(() => jsonResponse(409, { error: 'openeverest 2.0.0 is not the chart release everest-system/everest runs' }));
+    renderDrawer(hubEntry, selfAdmin(bundled));
+    fireEvent.click(screen.getByTestId('plugin-hub-self-update-now'));
+    fireEvent.click(screen.getByTestId('plugin-hub-self-update-confirm'));
+    expect(await screen.findByText(/is not the chart release/)).toBeTruthy();
+  });
+
+  it('names the value to set when no Helm release deploys it', () => {
+    renderDrawer(hubEntry, selfAdmin({ mode: 'unmanaged', valuesPath: 'plugin-hub.image.tag', version: '0.1.18', available: '0.2.0' }));
+    expect(screen.queryByTestId('plugin-hub-self-update-now')).toBeNull();
+    expect(screen.getByText('plugin-hub.image.tag=0.2.0')).toBeTruthy();
+  });
+
+  it('only explains a release that needs a newer chart', () => {
+    renderDrawer(hubEntry, selfAdmin({ ...bundled, available: undefined }));
+    expect(screen.queryByTestId('plugin-hub-self-update-now')).toBeNull();
+    expect(screen.getByTestId('plugin-hub-self-update-blocked')).toBeTruthy();
+  });
+
+  it('offers the Helm command to users who cannot update it', () => {
+    renderDrawer(hubEntry, { enabled: true, canInstall: false });
+    expect(screen.queryByTestId('plugin-hub-self-update')).toBeNull();
+    expect(screen.getByTestId('plugin-hub-upgrade-helm')).toBeTruthy();
+  });
+});

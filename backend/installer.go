@@ -64,13 +64,34 @@ const (
 	maxActionBodyBytes   = 4 * 1024
 )
 
+// selfChartName is the name of plugin-hub's own chart. The catalog entry whose
+// chart has this name is plugin-hub itself, whichever release runs it.
+const selfChartName = "plugin-hub"
+
 type installer struct {
 	enabled bool
-	// selfRelease/selfNamespace identify plugin-hub's own Helm release, which
-	// it refuses to modify (an upgrade would restart the pod mid-operation and
-	// could silently flip installer.enabled).
+	// selfRelease/selfNamespace identify the Helm release that runs this pod,
+	// which the installer refuses to modify (an upgrade would restart the pod
+	// mid-operation and could silently flip installer.enabled). When
+	// plugin-hub is a subchart, it is the parent's release, for example
+	// OpenEverest's own.
 	selfRelease   string
 	selfNamespace string
+	// selfChartVersion/selfAppVersion are the plugin-hub chart's versions,
+	// which differ from the release's chart when plugin-hub is a subchart.
+	// Helm does not keep subcharts in the stored release, so the chart passes
+	// them in.
+	selfChartVersion string
+	selfAppVersion   string
+	// selfImageTag is the image tag the chart runs; an image-only update
+	// changes it but not the chart.
+	selfImageTag string
+	// selfTemplatePath is the chart's .Template.BasePath, which locates
+	// plugin-hub's values in its parent chart.
+	selfTemplatePath string
+	// coreChartRepo is where the chart plugin-hub is bundled in is pulled
+	// from to update the image (see selfupdate.go).
+	coreChartRepo string
 
 	settings *cli.EnvSettings
 	registry *registry.Client
@@ -83,10 +104,18 @@ type installer struct {
 
 func newInstaller() *installer {
 	inst := &installer{
-		enabled:       strings.EqualFold(os.Getenv("INSTALLER_ENABLED"), "true"),
-		selfRelease:   os.Getenv("PLUGIN_HUB_RELEASE_NAME"),
-		selfNamespace: os.Getenv("POD_NAMESPACE"),
-		crds:          clusterCRDGetter,
+		enabled:          strings.EqualFold(os.Getenv("INSTALLER_ENABLED"), "true"),
+		selfRelease:      os.Getenv("PLUGIN_HUB_RELEASE_NAME"),
+		selfNamespace:    os.Getenv("POD_NAMESPACE"),
+		selfChartVersion: os.Getenv("PLUGIN_HUB_CHART_VERSION"),
+		selfAppVersion:   os.Getenv("PLUGIN_HUB_APP_VERSION"),
+		selfImageTag:     os.Getenv("PLUGIN_HUB_IMAGE_TAG"),
+		selfTemplatePath: os.Getenv("PLUGIN_HUB_TEMPLATE_PATH"),
+		coreChartRepo:    os.Getenv("PLUGIN_HUB_CORE_CHART_REPO"),
+		crds:             clusterCRDGetter,
+	}
+	if inst.coreChartRepo == "" {
+		inst.coreChartRepo = defaultCoreChartRepo
 	}
 	if !inst.enabled {
 		return inst
@@ -305,9 +334,55 @@ func toReleaseInfo(rel *release.Release) releaseInfo {
 	return info
 }
 
+// isSelf reports whether t is plugin-hub itself. It matches by chart, because
+// as a subchart plugin-hub runs in its parent's release, whose name and
+// namespace differ from the catalog's.
 func (i *installer) isSelf(t installTarget) bool {
+	if chartName(t.ChartRef) == selfChartName {
+		return true
+	}
 	return i.selfRelease != "" && t.Release == i.selfRelease &&
 		(i.selfNamespace == "" || t.Namespace == i.selfNamespace)
+}
+
+// chartName is the last path element of a chart reference, without a tag or
+// digest: oci://ghcr.io/openeverest/charts/plugin-hub:0.1.2 → plugin-hub.
+func chartName(ref string) string {
+	ref = strings.TrimSuffix(ref, "/")
+	if idx := strings.LastIndex(ref, "/"); idx >= 0 {
+		ref = ref[idx+1:]
+	}
+	if idx := strings.IndexAny(ref, ":@"); idx >= 0 {
+		ref = ref[:idx]
+	}
+	return ref
+}
+
+// selfKey is the "<type>:<name>" key of plugin-hub's own catalog entry, "" if
+// the catalog has none.
+func (i *installer) selfKey(index extensionIndex) string {
+	for _, ext := range index.Extensions {
+		if t, err := targetFromEntry(ext); err == nil && i.isSelf(t) {
+			return ext.Type + ":" + ext.Name
+		}
+	}
+	return ""
+}
+
+// selfReleaseInfo describes rel, the release that runs this pod, with the
+// plugin-hub chart's versions rather than the release chart's: as a subchart
+// the release's chart is the parent's.
+func (i *installer) selfReleaseInfo(rel *release.Release) releaseInfo {
+	info := toReleaseInfo(rel)
+	isRoot := rel.Chart != nil && rel.Chart.Metadata != nil && rel.Chart.Metadata.Name == selfChartName
+	if i.selfChartVersion != "" || !isRoot {
+		info.ChartVersion = i.selfChartVersion
+		info.AppVersion = i.selfAppVersion
+	}
+	if v := i.runningVersion(); v != "" {
+		info.AppVersion = v
+	}
+	return info
 }
 
 func (i *installer) loadChart(opts *action.ChartPathOptions, ref string) (*chart.Chart, error) {
@@ -448,7 +523,12 @@ func neverDeployed(hist []*release.Release) bool {
 func (i *installer) upgrade(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	return i.upgradeLocked(ctx, t, req)
+}
 
+// upgradeLocked upgrades t's release to a release of its catalog channel. The
+// caller holds i.mu.
+func (i *installer) upgradeLocked(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 	cfg, err := i.actionConfig(t.Namespace)
 	if err != nil {
 		return releaseInfo{}, err
@@ -579,6 +659,12 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 	if err != nil {
 		return nil, err
 	}
+	return i.matchReleases(cfg, rels, index), nil
+}
+
+// matchReleases maps catalog entries to their releases in rels. plugin-hub's
+// own entry maps to the release that runs this pod, whatever its name.
+func (i *installer) matchReleases(cfg *action.Configuration, rels []*release.Release, index extensionIndex) map[string]releaseInfo {
 	byKey := map[string]*release.Release{}
 	for _, rel := range rels {
 		byKey[rel.Namespace+"/"+rel.Name] = rel
@@ -589,6 +675,12 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 		if err != nil {
 			continue
 		}
+		if i.isSelf(t) {
+			if rel, ok := byKey[i.selfNamespace+"/"+i.selfRelease]; ok {
+				out[ext.Type+":"+ext.Name] = i.selfReleaseInfo(rel)
+			}
+			continue
+		}
 		if rel, ok := byKey[t.Namespace+"/"+t.Release]; ok {
 			info := toReleaseInfo(rel)
 			if rel.Info != nil && rel.Info.Status == release.StatusFailed {
@@ -597,7 +689,7 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 			out[ext.Type+":"+ext.Name] = info
 		}
 	}
-	return out, nil
+	return out
 }
 
 func failedFirstInstall(cfg *action.Configuration, rel *release.Release) bool {
@@ -632,8 +724,10 @@ type installerStatus struct {
 	Releases   map[string]releaseInfo `json:"releases,omitempty"`
 	// Self is the "<type>:<name>" key of plugin-hub's own catalog entry, which
 	// the installer refuses to modify; the UI hides one-click actions for it.
-	Self  string `json:"self,omitempty"`
-	Error string `json:"error,omitempty"`
+	Self string `json:"self,omitempty"`
+	// SelfUpdate says how plugin-hub itself can be updated.
+	SelfUpdate *selfUpdateStatus `json:"selfUpdate,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.HandlerFunc {
@@ -665,12 +759,8 @@ func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.Handl
 			status.Error = "could not list Helm releases: " + err.Error()
 		}
 		status.Releases = releases
-		for _, ext := range index.Extensions {
-			if t, err := targetFromEntry(ext); err == nil && inst.isSelf(t) {
-				status.Self = ext.Type + ":" + ext.Name
-				break
-			}
-		}
+		status.Self = inst.selfKey(index)
+		status.SelfUpdate = inst.selfUpdateStatus(r.Context(), index)
 		writeJSON(w, http.StatusOK, status)
 	}
 }
@@ -704,28 +794,15 @@ func registerInstallerRoutes(mux *http.ServeMux, inst *installer, cache *catalog
 		func(ctx context.Context, t installTarget, req actionRequest) (releaseInfo, error) {
 			return inst.uninstall(ctx, t, req.Confirm)
 		}))
+	mux.HandleFunc("POST /api/self-update", makeSelfUpdateHandler(inst, cache))
 }
 
 // authorizeTarget applies both installer gates and resolves the catalog
 // entry. On failure it has already written the HTTP error and returns false.
 func authorizeTarget(w http.ResponseWriter, r *http.Request, inst *installer, cache *catalogCache,
 	verb, extType, name string) (installTarget, callerIdentity, bool) {
-	if !inst.enabled {
-		apiError(w, http.StatusForbidden, "installer is disabled; enable it with --set installer.enabled=true")
-		return installTarget{}, callerIdentity{}, false
-	}
-	caller, err := resolveCaller(resolveAuthHeader(r))
-	if err != nil {
-		apiError(w, http.StatusBadGateway, "could not verify permissions: "+err.Error())
-		return installTarget{}, callerIdentity{}, false
-	}
-	if !caller.canAdmin {
-		apiError(w, http.StatusForbidden, "only administrators can "+verb+" extensions")
-		return installTarget{}, callerIdentity{}, false
-	}
-	index, err := loadIndex(cache)
-	if err != nil {
-		apiError(w, http.StatusBadGateway, err.Error())
+	caller, index, ok := authorizeAdmin(w, r, inst, cache, verb+" extensions")
+	if !ok {
 		return installTarget{}, callerIdentity{}, false
 	}
 	target, err := resolveTarget(index, extType, name)
@@ -738,6 +815,31 @@ func authorizeTarget(w http.ResponseWriter, r *http.Request, inst *installer, ca
 		return installTarget{}, callerIdentity{}, false
 	}
 	return target, caller, true
+}
+
+// authorizeAdmin applies both installer gates and loads the catalog. On
+// failure it has already written the HTTP error and returns false.
+func authorizeAdmin(w http.ResponseWriter, r *http.Request, inst *installer, cache *catalogCache,
+	what string) (callerIdentity, extensionIndex, bool) {
+	if !inst.enabled {
+		apiError(w, http.StatusForbidden, "installer is disabled; enable it with --set installer.enabled=true")
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	caller, err := resolveCaller(resolveAuthHeader(r))
+	if err != nil {
+		apiError(w, http.StatusBadGateway, "could not verify permissions: "+err.Error())
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	if !caller.canAdmin {
+		apiError(w, http.StatusForbidden, "only administrators can "+what)
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	index, err := loadIndex(cache)
+	if err != nil {
+		apiError(w, http.StatusBadGateway, err.Error())
+		return callerIdentity{}, extensionIndex{}, false
+	}
+	return caller, index, true
 }
 
 type uninstallPreflight struct {
@@ -793,32 +895,37 @@ func makeInstallerActionHandler(inst *installer, cache *catalogCache, verb strin
 		info, err := op(ctx, target, req)
 		if err != nil {
 			log.Printf("installer: %s of %s %q failed: %v", verb, target.Type, target.Name, err)
-			var inUse errInstancesInUse
-			if errors.As(err, &inUse) {
-				writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "instances": inUse.instances})
-				return
-			}
-			var conflict errConflict
-			if errors.As(err, &conflict) {
-				apiError(w, http.StatusConflict, err.Error())
-				return
-			}
-			var incompatible errIncompatible
-			if errors.As(err, &incompatible) {
-				writeJSON(w, http.StatusConflict, incompatible.body())
-				return
-			}
-			var badRequest errBadRequest
-			if errors.As(err, &badRequest) {
-				apiError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			apiError(w, http.StatusInternalServerError, verb+" failed: "+err.Error())
+			writeOperationError(w, verb, err)
 			return
 		}
 		log.Printf("installer: %s of %s %q succeeded (status %s)", verb, target.Type, target.Name, info.Status)
 		writeJSON(w, http.StatusOK, info)
 	}
+}
+
+// writeOperationError maps the error of a Helm operation to its HTTP response.
+func writeOperationError(w http.ResponseWriter, verb string, err error) {
+	var inUse errInstancesInUse
+	if errors.As(err, &inUse) {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "instances": inUse.instances})
+		return
+	}
+	var conflict errConflict
+	if errors.As(err, &conflict) {
+		apiError(w, http.StatusConflict, err.Error())
+		return
+	}
+	var incompatible errIncompatible
+	if errors.As(err, &incompatible) {
+		writeJSON(w, http.StatusConflict, incompatible.body())
+		return
+	}
+	var badRequest errBadRequest
+	if errors.As(err, &badRequest) {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	apiError(w, http.StatusInternalServerError, verb+" failed: "+err.Error())
 }
 
 func loadIndex(cache *catalogCache) (extensionIndex, error) {

@@ -284,6 +284,9 @@ type catalogRelease struct {
 	Digest          string `json:"digest,omitempty"`
 	ContractVersion string `json:"contractVersion,omitempty"`
 	KubeVersion     string `json:"kubeVersion,omitempty"`
+	// MinChartVersion is the oldest chart of the extension that can run this
+	// release's image; plugin-hub uses it to update its image in place.
+	MinChartVersion string `json:"minChartVersion,omitempty"`
 }
 
 type chartChannel struct {

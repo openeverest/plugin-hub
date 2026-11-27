@@ -4,22 +4,23 @@
 //
 //  1. Bundle + icon + health   — served straight from embedded files.
 //  2. Catalog                  — fetches the upstream hub index, caches it in
-//                                memory, and returns the parsed JSON. Falls
-//                                back to the last successful response when the
-//                                upstream is unreachable.
+//     memory, and returns the parsed JSON. Falls
+//     back to the last successful response when the
+//     upstream is unreachable.
 //  3. Installed extensions     — proxied call to the OpenEverest API server,
-//                                forwarding the caller's X-Everest-User JWT.
+//     forwarding the caller's X-Everest-User JWT.
 //  4. Summary                  — server-side join of catalog + installed,
-//                                annotating each catalog entry with its
-//                                install status. Single round-trip for the UI.
+//     annotating each catalog entry with its
+//     install status. Single round-trip for the UI.
 //  5. Installer (opt-out)      — admin-only one-click install / upgrade /
-//                                uninstall of catalog entries via the Helm
-//                                SDK. See installer.go.
+//     uninstall of catalog entries via the Helm
+//     SDK. See installer.go.
 //  6. Compatibility            — which catalog releases work with the
-//                                OpenEverest in the cluster. See compat.go.
+//     OpenEverest in the cluster. See compat.go.
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -31,9 +32,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -117,14 +120,14 @@ func clusterName() string {
 // ---------------------------------------------------------------------------
 
 type catalogCache struct {
-	mu          sync.RWMutex
-	ttl         time.Duration
-	url         string
-	client      *http.Client
-	body        []byte // last successful raw JSON body
-	fetchedAt   time.Time
-	lastErr     error
-	lastErrAt   time.Time
+	mu        sync.RWMutex
+	ttl       time.Duration
+	url       string
+	client    *http.Client
+	body      []byte // last successful raw JSON body
+	fetchedAt time.Time
+	lastErr   error
+	lastErrAt time.Time
 }
 
 func newCatalogCache(url string, ttl time.Duration) *catalogCache {
@@ -784,7 +787,29 @@ func main() {
 	port := listenPort()
 	log.Printf("plugin-hub backend listening on :%s (hub: %s, everest: %s, cache TTL: %s, installer: %t)",
 		port, hubIndexURL(), everestAPIURL(), cacheTTL(), inst.enabled)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	srv := &http.Server{Addr: ":" + port, Handler: mux}
+	go drainOnSignal(srv)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
+	}
+	<-drained
+}
+
+var drained = make(chan struct{})
+
+// drainOnSignal lets in-flight requests finish on SIGTERM. A self-update
+// replaces this pod while it still runs the Helm upgrade; the Deployment only
+// stops the old pod once the new one is ready, and draining lets the upgrade
+// record its result instead of leaving the release pending.
+func drainOnSignal(srv *http.Server) {
+	defer close(drained)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+	<-sig
+	log.Printf("shutting down, waiting for in-flight requests")
+	ctx, cancel := context.WithTimeout(context.Background(), helmOperationTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("shutdown: %v", err)
 	}
 }

@@ -199,8 +199,9 @@ export function isVersionOutdated(
 
 // The Helm chart version (admins with the installer enabled) is what catalog
 // channel versions refer to; fall back to the version reported by core.
+// plugin-hub reports the release it runs, which can be newer than its chart.
 export function currentVersion(entry: CatalogEntry): string | undefined {
-  return entry.release?.chartVersion || entry.installedVersion;
+  return entry.runningVersion || entry.release?.chartVersion || entry.installedVersion;
 }
 
 // Generates the helm upgrade command for outdated extensions

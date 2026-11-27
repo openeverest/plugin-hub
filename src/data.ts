@@ -98,6 +98,21 @@ export async function runInstallerAction(
   return body as ReleaseInfo;
 }
 
+// runSelfUpdate updates plugin-hub itself, by default to the newest release it
+// can update to.
+export async function runSelfUpdate(version?: string): Promise<ReleaseInfo> {
+  const res = await pluginFetch('/api/self-update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(version ? { version } : {}),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(body?.error || `HTTP ${res.status}`);
+  }
+  return body as ReleaseInfo;
+}
+
 // Phrase the backend requires to uninstall a provider that still has instances.
 export const UNINSTALL_CONFIRM_PHRASE = 'UNINSTALL';
 

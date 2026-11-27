@@ -15,6 +15,7 @@ import { IconImg, resolveIconSrc } from '../icons';
 import { CodeBlock } from './CodeBlock';
 import { DrawerShell } from './DrawerShell';
 import { InstallActions } from './InstallActions';
+import { SelfUpdate } from './SelfUpdate';
 import { UninstallDialog } from './UninstallDialog';
 import {
   Alert,
@@ -271,7 +272,7 @@ export function Drawer(props: {
   notice: string | null;
   onInstallerDone: (
     entry: CatalogEntry,
-    action: InstallerAction | 'uninstall',
+    action: InstallerAction | 'uninstall' | 'self-update',
     release: ReleaseInfo
   ) => void;
   onClose: () => void;
@@ -309,6 +310,9 @@ export function Drawer(props: {
   const releaseStatus = entry.release?.status;
   const isSelf = installer?.self === `${entry.type}:${entry.name}`;
   const canManage = !!installer?.canInstall && !isGated && !isSelf;
+  // plugin-hub updates itself its own way; without the status (not an admin,
+  // or no installer) it offers the Helm command like any other entry.
+  const selfUpdate = isSelf ? installer?.selfUpdate : undefined;
   const extensionPoints = entry.plugin?.extensionPoints ?? [];
   const supportedEngines = entry.provider?.supportedEngines ?? [];
   const maintainers = entry.maintainers ?? [];
@@ -427,7 +431,14 @@ export function Drawer(props: {
 
     notice ? h(Alert, { severity: 'success', sx: { mb: 2 } }, notice) : null,
 
-    isOutdated
+    selfUpdate
+      ? h(SelfUpdate, {
+          status: selfUpdate,
+          onDone: (release: ReleaseInfo) => onInstallerDone(entry, 'self-update', release),
+        })
+      : null,
+
+    isOutdated && !selfUpdate
       ? h(
           Alert,
           { severity: 'warning', sx: { mb: 1.5 } },
@@ -435,7 +446,7 @@ export function Drawer(props: {
         )
       : null,
 
-    actionMode
+    actionMode && !selfUpdate
       ? h(InstallActions, {
           key: `${entry.type}:${entry.name}:${actionMode}`,
           entry,
