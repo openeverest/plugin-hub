@@ -64,13 +64,25 @@ const (
 	maxActionBodyBytes   = 4 * 1024
 )
 
+// selfChartName is the name of plugin-hub's own chart. The catalog entry whose
+// chart has this name is plugin-hub itself, whichever release runs it.
+const selfChartName = "plugin-hub"
+
 type installer struct {
 	enabled bool
-	// selfRelease/selfNamespace identify plugin-hub's own Helm release, which
-	// it refuses to modify (an upgrade would restart the pod mid-operation and
-	// could silently flip installer.enabled).
+	// selfRelease/selfNamespace identify the Helm release that runs this pod,
+	// which the installer refuses to modify (an upgrade would restart the pod
+	// mid-operation and could silently flip installer.enabled). When
+	// plugin-hub is a subchart, it is the parent's release, for example
+	// OpenEverest's own.
 	selfRelease   string
 	selfNamespace string
+	// selfChartVersion/selfAppVersion are the plugin-hub chart's versions,
+	// which differ from the release's chart when plugin-hub is a subchart.
+	// Helm does not keep subcharts in the stored release, so the chart passes
+	// them in.
+	selfChartVersion string
+	selfAppVersion   string
 
 	settings *cli.EnvSettings
 	registry *registry.Client
@@ -83,10 +95,12 @@ type installer struct {
 
 func newInstaller() *installer {
 	inst := &installer{
-		enabled:       strings.EqualFold(os.Getenv("INSTALLER_ENABLED"), "true"),
-		selfRelease:   os.Getenv("PLUGIN_HUB_RELEASE_NAME"),
-		selfNamespace: os.Getenv("POD_NAMESPACE"),
-		crds:          clusterCRDGetter,
+		enabled:          strings.EqualFold(os.Getenv("INSTALLER_ENABLED"), "true"),
+		selfRelease:      os.Getenv("PLUGIN_HUB_RELEASE_NAME"),
+		selfNamespace:    os.Getenv("POD_NAMESPACE"),
+		selfChartVersion: os.Getenv("PLUGIN_HUB_CHART_VERSION"),
+		selfAppVersion:   os.Getenv("PLUGIN_HUB_APP_VERSION"),
+		crds:             clusterCRDGetter,
 	}
 	if !inst.enabled {
 		return inst
@@ -305,9 +319,52 @@ func toReleaseInfo(rel *release.Release) releaseInfo {
 	return info
 }
 
+// isSelf reports whether t is plugin-hub itself. It matches by chart, because
+// as a subchart plugin-hub runs in its parent's release, whose name and
+// namespace differ from the catalog's.
 func (i *installer) isSelf(t installTarget) bool {
+	if chartName(t.ChartRef) == selfChartName {
+		return true
+	}
 	return i.selfRelease != "" && t.Release == i.selfRelease &&
 		(i.selfNamespace == "" || t.Namespace == i.selfNamespace)
+}
+
+// chartName is the last path element of a chart reference, without a tag or
+// digest: oci://ghcr.io/openeverest/charts/plugin-hub:0.1.2 → plugin-hub.
+func chartName(ref string) string {
+	ref = strings.TrimSuffix(ref, "/")
+	if idx := strings.LastIndex(ref, "/"); idx >= 0 {
+		ref = ref[idx+1:]
+	}
+	if idx := strings.IndexAny(ref, ":@"); idx >= 0 {
+		ref = ref[:idx]
+	}
+	return ref
+}
+
+// selfKey is the "<type>:<name>" key of plugin-hub's own catalog entry, "" if
+// the catalog has none.
+func (i *installer) selfKey(index extensionIndex) string {
+	for _, ext := range index.Extensions {
+		if t, err := targetFromEntry(ext); err == nil && i.isSelf(t) {
+			return ext.Type + ":" + ext.Name
+		}
+	}
+	return ""
+}
+
+// selfReleaseInfo describes rel, the release that runs this pod, with the
+// plugin-hub chart's versions rather than the release chart's: as a subchart
+// the release's chart is the parent's.
+func (i *installer) selfReleaseInfo(rel *release.Release) releaseInfo {
+	info := toReleaseInfo(rel)
+	isRoot := rel.Chart != nil && rel.Chart.Metadata != nil && rel.Chart.Metadata.Name == selfChartName
+	if i.selfChartVersion != "" || !isRoot {
+		info.ChartVersion = i.selfChartVersion
+		info.AppVersion = i.selfAppVersion
+	}
+	return info
 }
 
 func (i *installer) loadChart(opts *action.ChartPathOptions, ref string) (*chart.Chart, error) {
@@ -579,6 +636,12 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 	if err != nil {
 		return nil, err
 	}
+	return i.matchReleases(cfg, rels, index), nil
+}
+
+// matchReleases maps catalog entries to their releases in rels. plugin-hub's
+// own entry maps to the release that runs this pod, whatever its name.
+func (i *installer) matchReleases(cfg *action.Configuration, rels []*release.Release, index extensionIndex) map[string]releaseInfo {
 	byKey := map[string]*release.Release{}
 	for _, rel := range rels {
 		byKey[rel.Namespace+"/"+rel.Name] = rel
@@ -589,6 +652,12 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 		if err != nil {
 			continue
 		}
+		if i.isSelf(t) {
+			if rel, ok := byKey[i.selfNamespace+"/"+i.selfRelease]; ok {
+				out[ext.Type+":"+ext.Name] = i.selfReleaseInfo(rel)
+			}
+			continue
+		}
 		if rel, ok := byKey[t.Namespace+"/"+t.Release]; ok {
 			info := toReleaseInfo(rel)
 			if rel.Info != nil && rel.Info.Status == release.StatusFailed {
@@ -597,7 +666,7 @@ func (i *installer) releasesFor(index extensionIndex) (map[string]releaseInfo, e
 			out[ext.Type+":"+ext.Name] = info
 		}
 	}
-	return out, nil
+	return out
 }
 
 func failedFirstInstall(cfg *action.Configuration, rel *release.Release) bool {
@@ -665,12 +734,7 @@ func makeInstallerStatusHandler(inst *installer, cache *catalogCache) http.Handl
 			status.Error = "could not list Helm releases: " + err.Error()
 		}
 		status.Releases = releases
-		for _, ext := range index.Extensions {
-			if t, err := targetFromEntry(ext); err == nil && inst.isSelf(t) {
-				status.Self = ext.Type + ":" + ext.Name
-				break
-			}
-		}
+		status.Self = inst.selfKey(index)
 		writeJSON(w, http.StatusOK, status)
 	}
 }

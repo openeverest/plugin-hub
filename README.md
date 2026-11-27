@@ -97,6 +97,7 @@ For local development, set `INSTALLER_ENABLED=false` in `dev/.env` (this repo's 
 - When a Helm hook Job or Pod fails, the error shows the last lines of its logs (or why its container never started), not just `BackoffLimitExceeded`.
 - Upgrade availability is computed from the Helm release's chart version, so it is accurate even when a chart's `appVersion` differs.
 - Uninstall runs `helm uninstall` on that release after a confirmation dialog. If **instances still use a provider** (matched on `spec.providerRef.name` across all namespaces), the dialog lists them and the admin must type `UNINSTALL`; the backend enforces the same phrase, so the warning can't be skipped via the API. Helm keeps CRDs, so database resources are not deleted — they just stop being managed until the provider is reinstalled.
+- plugin-hub recognises its own catalog entry by chart, so it also does when it runs as a subchart of the OpenEverest chart (in the core release). It shows as installed, with its own chart version rather than the release's, and offers no install, upgrade or uninstall.
 - Not handled: prerequisites (e.g. cert-manager), CRD updates on upgrade or removal on uninstall (Helm limitation), releases installed under a non-default name, and plugin-hub modifying itself — use Helm directly for those.
 
 > **Security note.** With the installer enabled (the default), plugin-hub effectively holds cluster-admin. Anyone who can change its image or its `hubIndexURL` can use those rights — treat the catalog URL as a root of trust.
