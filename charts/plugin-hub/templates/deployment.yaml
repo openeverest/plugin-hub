@@ -70,6 +70,12 @@ spec:
               value: "true"
             - name: PLUGIN_HUB_RELEASE_NAME
               value: {{ .Release.Name | quote }}
+            # This chart's versions; as a subchart they differ from the
+            # release's chart, and Helm does not store subcharts in the release.
+            - name: PLUGIN_HUB_CHART_VERSION
+              value: {{ .Chart.Version | quote }}
+            - name: PLUGIN_HUB_APP_VERSION
+              value: {{ .Chart.AppVersion | quote }}
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

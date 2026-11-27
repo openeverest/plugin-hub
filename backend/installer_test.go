@@ -309,3 +309,95 @@ func TestInstallerActionHandler(t *testing.T) {
 	rec, _ = call(errBadRequest{"9.9.9 is not a release"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func hubEntry() extensionSummary {
+	ext := chartEntry("plugin-hub", "plugin", map[string]any{
+		"ref": "oci://ghcr.io/openeverest/charts/plugin-hub", "version": "0.1.3",
+	})
+	ext.Install = map[string]any{"helm": map[string]any{"releaseName": "plugin-hub", "namespace": "everest-system"}}
+	return ext
+}
+
+func deployedRelease(name, namespace, chartName, version string) *release.Release {
+	ch := demoChart(version)
+	ch.Metadata.Name = chartName
+	ch.Metadata.AppVersion = "app-" + version
+	return &release.Release{Name: name, Namespace: namespace, Version: 1,
+		Info: &release.Info{Status: release.StatusDeployed}, Chart: ch}
+}
+
+// As a subchart of the core chart, plugin-hub runs in the core release, so the
+// catalog's release name does not match; it must still recognise itself.
+func TestInstallerRecognisesItselfAsSubchart(t *testing.T) {
+	inst := &installer{selfRelease: "everest", selfNamespace: "everest-system",
+		selfChartVersion: "0.1.2", selfAppVersion: "0.1.0"}
+	index := extensionIndex{Extensions: append(testIndex().Extensions, hubEntry())}
+	rels := []*release.Release{deployedRelease("everest", "everest-system", "everest", "2.0.0")}
+
+	assert.Equal(t, "plugin:plugin-hub", inst.selfKey(index))
+	assert.Equal(t, map[string]releaseInfo{"plugin:plugin-hub": {
+		Release: "everest", Namespace: "everest-system", Status: "deployed",
+		ChartVersion: "0.1.2", AppVersion: "0.1.0",
+	}}, inst.matchReleases(memoryConfig(t), rels, index))
+
+	// Without the chart's versions, the core chart's must not be reported.
+	inst.selfChartVersion, inst.selfAppVersion = "", ""
+	got := inst.matchReleases(memoryConfig(t), rels, index)["plugin:plugin-hub"]
+	assert.Empty(t, got.ChartVersion)
+	assert.Empty(t, got.AppVersion)
+}
+
+func TestInstallerRecognisesItselfStandalone(t *testing.T) {
+	inst := &installer{selfRelease: "hub", selfNamespace: "tools"}
+	index := extensionIndex{Extensions: []extensionSummary{hubEntry()}}
+	rels := []*release.Release{
+		deployedRelease("hub", "tools", "plugin-hub", "0.1.1"),
+		// Not this pod's release, even though it matches the catalog.
+		deployedRelease("plugin-hub", "everest-system", "plugin-hub", "0.0.9"),
+	}
+
+	assert.Equal(t, map[string]releaseInfo{"plugin:plugin-hub": {
+		Release: "hub", Namespace: "tools", Status: "deployed",
+		ChartVersion: "0.1.1", AppVersion: "app-0.1.1",
+	}}, inst.matchReleases(memoryConfig(t), rels, index))
+}
+
+func TestInstallerRefusesToModifyItselfAsSubchart(t *testing.T) {
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"enabled": false, "permissions": []}`))
+	}))
+	defer core.Close()
+	t.Setenv("EVEREST_API_URL", core.URL)
+	index, err := json.Marshal(extensionIndex{Extensions: []extensionSummary{hubEntry()}})
+	require.NoError(t, err)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(index)
+	}))
+	defer hub.Close()
+	inst := &installer{enabled: true, selfRelease: "everest", selfNamespace: "everest-system"}
+	op := func(context.Context, installTarget, actionRequest) (releaseInfo, error) {
+		t.Fatal("plugin-hub must not run Helm on itself")
+		return releaseInfo{}, nil
+	}
+
+	for _, verb := range []string{"install", "uninstall"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/"+verb, strings.NewReader(`{"type": "plugin", "name": "plugin-hub"}`))
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		makeInstallerActionHandler(inst, newCatalogCache(hub.URL, time.Minute), verb, op)(rec, req)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, verb)
+		assert.Contains(t, rec.Body.String(), "cannot "+verb+" itself", verb)
+	}
+}
+
+func TestChartName(t *testing.T) {
+	for ref, want := range map[string]string{
+		"oci://ghcr.io/openeverest/charts/plugin-hub":            "plugin-hub",
+		"oci://ghcr.io/openeverest/charts/plugin-hub:0.1.2":      "plugin-hub",
+		"oci://ghcr.io/openeverest/charts/plugin-hub@sha256:abc": "plugin-hub",
+		"oci://ghcr.io/openeverest/charts/plugin-hub-extra":      "plugin-hub-extra",
+		"": "",
+	} {
+		assert.Equal(t, want, chartName(ref), ref)
+	}
+}
